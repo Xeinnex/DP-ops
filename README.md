@@ -65,7 +65,23 @@ Database checks use an isolated temporary SQLite file. For live checks, start th
 
 Back up SQLite while the app is stopped by copying `data/dp-ops.sqlite`. Do not commit database files or `.env.local`.
 
-## Manually adding missed work
+## Dashboard pictures, comparisons, and queue links
+
+Add square WebP profile pictures to `public/profile-pictures` as `PP-Alias.webp`, for example `PP-Diana.webp` or `PP-Nacho.webp`. Use the exact display alias from Creatives DB. Missing pictures show a blue circle; refresh the browser after adding one.
+
+A thinner **Previous** bar appears below the current bar when assigned/completed DT changed since the last queue refresh. Its saved values survive browser and application restarts and are kept separately for each Bogotá day. The first refresh has no comparison when there is no saved work yet.
+
+Client names link to their active website queues on the dashboard, Client tickets, and Clients DB. Company IDs can be edited in Clients DB without changing the internal record identity. The fetcher uses the edited company IDs. Creative names link to individual queues when a Designer ID is entered in Creatives DB; The supplied designer IDs are Ailen `2812`, Diana `1516`, Edgar `5371`, Faisal `2191`, Haqqy `1238`, Juanes `8284`, Andrew `2052`, and Nacho `1520`. These defaults seed new databases; existing editable records are updated through the registry API, not overwritten at startup. Queue links open in a new tab.
+
+Creative cards receive a subtle green tint when all assigned DT is completed, and a red tint when assigned DT exceeds daily capacity (normally `6:45`). Red takes priority for an overloaded, completed queue. Empty queues are not marked complete.
+
+Tailwind scans only `src` so SQLite and other runtime file changes cannot trigger style recompilation/reload loops. Verify this with `node scripts/check-style-sources.cjs`. Queue filters can be checked with `node scripts/check-queue-links.cjs`.
+
+## DT corrections and manually adding missed work
+
+DT locks when an entry is observed In Progress (including paused). Further In Progress observations can update DT until the entry leaves that status; afterwards its last In Progress DT is preserved even if the source clears it. Incomplete (Revision) follows the same daily rules as Incomplete (WIP). Saved observations are replayed with these rules, recovering previously captured In Progress DT without rewriting raw history. A new Open (Revision) work cycle has its own DT.
+
+Use **Edit DT** in a creative's expanded dashboard queue to correct a daily entry. These corrections persist in SQLite, take priority over future source values for that entry, and appear in Ticket Log under **Manual DT corrections**. Customer Clarification tickets appear only in the separate dashboard clarification box, not in creative dropdowns.
 
 Use **Add missed ticket** in the dashboard for a ticket that was delivered before the queues were refreshed. Paste its Design Pickle ticket URL and click **Look up ticket**. The server uses `DP_COOKIE` to read the client, title, and current status. Select a team creative, enter DT in `H:MM` format, and adjust the status if needed, then click **Add to today**.
 

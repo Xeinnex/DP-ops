@@ -6,18 +6,39 @@ const vm = require("node:vm");
 const ts = require("typescript");
 function load(file, dependencies = {}) {
   const exports = {};
-  vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, { exports, require: (id) => id in dependencies ? dependencies[id] : require(id), process, Map, Set, Intl, Date });
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, { exports, require: (id) => id in dependencies ? dependencies[id] : require(id), process, Map, Set, Intl, Date, Request, Response, URL });
   return exports;
 }
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), "dp-ops-db-"));
 process.env.DP_DB_PATH = path.join(directory, "test.sqlite");
 const daily = load("src/lib/daily.ts");
 const status = load("src/lib/ticket-status.ts", { "@/lib/design-time": load("src/lib/design-time.ts") });
-const dependencies = { "server-only": {}, "@/data/clients": load("src/data/clients.ts"), "@/data/team": load("src/data/team.ts"), "@/lib/daily": daily, "@/lib/ticket-status": status };
+const creativeWork = load("src/lib/creative-work.ts", { "@/lib/daily": daily });
+const progress = load("src/lib/creative-progress.ts", { "@/lib/creative-work": creativeWork, "@/lib/ticket-status": status });
+const dependencies = { "server-only": {}, "@/data/clients": load("src/data/clients.ts"), "@/data/team": load("src/data/team.ts"), "@/lib/daily": daily, "@/lib/ticket-status": status, "@/lib/creative-progress": progress };
+const legacy = new (require("better-sqlite3"))(process.env.DP_DB_PATH);
+legacy.exec("CREATE TABLE clients(id TEXT PRIMARY KEY,name TEXT NOT NULL,dailyMinutes INTEGER NOT NULL,pc TEXT NOT NULL); CREATE TABLE creatives(id TEXT PRIMARY KEY,name TEXT NOT NULL,alias TEXT NOT NULL,scopes TEXT NOT NULL,capacityMinutes INTEGER NOT NULL)");
+legacy.close();
 const database = load("src/lib/database.ts", dependencies);
+async function main() {
 try {
   assert.equal(database.registry().clients.length, 39);
   assert.equal(database.registry().creatives.length, 8);
+  assert.equal(database.registry().creatives.find((creative) => creative.alias === "Edgar").designerId, "5371");
+  assert.equal(database.registry().clients.find((client) => client.id === "19604").companyId, "19604");
+  database.db().prepare("UPDATE clients SET companyId='19605' WHERE id='19604'").run();
+  database.db().prepare("UPDATE creatives SET designerId='5372' WHERE alias='Edgar'").run();
+  const routes = load("src/app/api/registry/route.ts", { "@/lib/database": database, "@/lib/daily": daily, "next/server": { connection: async () => {} } });
+  const mutate = async (body) => routes.POST(new Request("http://localhost/api/registry", { method: "POST", headers: { Origin: "http://localhost", Host: "localhost", "Content-Type": "application/json" }, body: JSON.stringify(body) }));
+  assert.equal((await mutate({ kind: "clients", id: "19604", companyId: "19606", name: "AssetWorks Inc.", dailyMinutes: 120, pc: "NO PC" })).status, 200);
+  assert.equal(database.registry().clients.find((client) => client.id === "19604").companyId, "19606");
+  assert.equal((await mutate({ kind: "clients", id: "19604", companyId: "91457", name: "AssetWorks Inc.", dailyMinutes: 120, pc: "NO PC" })).status, 400);
+  assert.equal((await mutate({ kind: "creatives", id: "diana", designerId: "5372", name: "Diana Carolina Rodriguez Nino", alias: "Diana", scopes: ["GD"], capacityMinutes: 405 })).status, 400);
+  assert.equal((await mutate({ kind: "creatives", id: "diana", designerId: "12345", name: "Diana Carolina Rodriguez Nino", alias: "Diana", scopes: ["GD"], capacityMinutes: 405 })).status, 200);
+  assert.equal(database.registry().creatives.find((creative) => creative.id === "diana").designerId, "12345");
+  database.db().prepare("UPDATE clients SET companyId='19605' WHERE id='19604'").run();
+  database.capturePreviousProgress("2025-01-01");
+  assert.equal(database.dailyData("2025-01-01").previousProgress.length, 0);
   assert.equal(database.registry().clients.find((client) => client.id === "91457").dailyMinutes, 1980);
   assert.equal(daily.signedTime(405 - 420), "-0:15");
   assert.equal(daily.signedTime(405 - 300), "1:45");
@@ -26,6 +47,9 @@ try {
   const result = { tickets: [ticket], fetchedAt: "2026-10-13T13:00:00Z", pagesFetched: 1, warnings: [] };
   database.saveFetch(result, "clients", "clients", "2026-10-12");
   database.saveFetch(result, "clients", "clients", "2026-10-13");
+  database.capturePreviousProgress("2026-10-13");
+  assert.equal(database.dailyData("2026-10-13").previousProgress.find((creative) => creative.creativeId === "ailen").assignedMinutes, 60);
+  assert.equal(database.dailyData("2026-10-13").previousProgress.find((creative) => creative.creativeId === "ailen").completedMinutes, 30);
   database.saveFetch({ ...result, tickets: [{ ...ticket, designTime: "2:00" }], fetchedAt: "2026-10-13T14:00:00Z" }, "creatives", "347", "2026-10-13");
   assert.equal(database.dailyData("2026-10-13").tickets.length, 1);
   assert.equal(database.dailyData("2026-10-13").tickets[0].designTime, "2:00");
@@ -42,11 +66,11 @@ try {
   database.markWorked("2026-10-13", "1", ticket.assignee, true);
   database.saveFetch({ ...result, tickets: [{ ...ticket, assignee: "Diana Carolina Rodriguez Nino", designTime: "3:00", status: "Customer Review" }], fetchedAt: "2026-10-13T16:00:00Z" }, "clients", "clients", "2026-10-13");
   const reassigned = database.dailyData("2026-10-13");
-  assert.equal(reassigned.tickets[0].designTime, "3:00");
+  assert.equal(reassigned.tickets[0].designTime, "2:00");
   assert.equal(reassigned.tickets[0].status, "Customer Review");
   assert.equal(work.creativeWork(reassigned.tickets, [], ticket.assignee).length, 0);
   assert.equal(work.creativeWork(reassigned.tickets, reassigned.workedTickets, ticket.assignee)[0].designTime, "2:00");
-  assert.equal(work.creativeWork(reassigned.tickets, reassigned.workedTickets, "Diana Carolina Rodriguez Nino")[0].designTime, "3:00");
+  assert.equal(work.creativeWork(reassigned.tickets, reassigned.workedTickets, "Diana Carolina Rodriguez Nino")[0].designTime, "2:00");
   database.markWorked("2026-10-13", "1", ticket.assignee, false);
   assert.equal(database.dailyData("2026-10-13").workedTickets.length, 0);
   database.saveFetch({ ...result, tickets: [{ ...ticket, status: "Incomplete (WIP)" }] }, "clients", "clients", "2026-10-14");
@@ -58,6 +82,16 @@ try {
   assert.equal(database.dailyData("2026-10-14").tickets[0].completion, 0);
   database.setManualCompletion("2026-10-14", "1:1", true);
   database.saveFetch(result, "clients", "clients", "2026-10-15");
+  database.saveFetch({ ...result, tickets: [{ ...ticket, designTime: null, status: "Incomplete (Revision)" }], fetchedAt: "2026-10-13T14:00:00Z" }, "clients", "clients", "2026-10-16");
+  database.saveFetch(result, "creatives", "347", "2026-10-16");
+  assert.equal(database.dailyData("2026-10-16").tickets[0].designTime, "1:00");
+  assert.equal(database.dailyData("2026-10-16").tickets[0].completion, 1);
+  database.setDesignTime("2026-10-16", "1:1", "1:45");
+  database.saveFetch({ ...result, tickets: [{ ...ticket, designTime: null, status: "Incomplete (Revision)" }], fetchedAt: "2099-01-01T00:00:00Z" }, "clients", "clients", "2026-10-16");
+  assert.equal(database.dailyData("2026-10-16").tickets[0].designTime, "1:45");
+  assert.equal(database.dailyData("2026-10-16").tickets[0].manualDesignTime, true);
+  assert.equal(database.ticketHistory("2026-10-16", "1").designTimeEdits[0].designTime, "1:45");
+  assert.throws(() => database.setDesignTime("2026-10-16", "1:1", "1:99"));
   assert.equal(database.missingStatusCandidates("2026-10-15", new Set()).length, 1);
   assert.equal(database.claimDetailCheck("2026-10-15", "1"), true);
   assert.equal(database.claimDetailCheck("2026-10-15", "1"), false);
@@ -88,6 +122,10 @@ try {
   assert.equal(database.savedTickets("clients", "clients", "2026-10-12").tickets.length, 1);
   database.db().close();
   const reopened = load("src/lib/database.ts", dependencies);
+  assert.equal(reopened.registry().clients.find((client) => client.id === "19604").companyId, "19605");
+  assert.equal(reopened.registry().creatives.find((creative) => creative.alias === "Edgar").designerId, "5372");
+  assert.equal(reopened.dailyData("2026-10-13").previousProgress.find((creative) => creative.creativeId === "ailen").assignedMinutes, 60);
+  assert.equal(reopened.dailyData("2026-10-16").tickets[0].designTime, "1:45");
   assert.equal(reopened.dailyData(manualDay).tickets.find((entry) => entry.id === "777").manuallyAdded, true);
   assert.equal(reopened.registry().clients.length, 38);
   assert.equal(reopened.savedTickets("clients", "clients", "2026-10-12").tickets.length, 1);
@@ -98,3 +136,5 @@ try {
 } finally {
   fs.rmSync(directory, { recursive: true, force: true });
 }
+}
+main().catch((error) => { console.error(error.message); process.exitCode = 1; });

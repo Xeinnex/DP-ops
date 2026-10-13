@@ -7,7 +7,7 @@ export function parseTicketStatus(html: string): string {
   const badge = $('[aria-label="Ticket Status"]').first().text().replace(/\s+/g, " ").trim();
   const option = $('select[aria-label="State"] option[selected]').first();
   const status = badge || option.attr("data-label") || option.text().trim();
-  if (!/^(Draft|Open(?: \(Revision\))?|Assigned|In Progress(?: \(paused\))?|Incomplete(?: \(WIP\))?|Quality Review|Customer Review|Customer Clarification|Closed|Archived|Cancel[l]?ed|Inactive)$/i.test(status)) throw new Error("No recognized ticket status found in detail HTML.");
+  if (!/^(Draft|Open(?: \(Revision\))?|Assigned|In Progress(?: \(paused\))?|Incomplete(?: \((?:WIP|Revision)\))?|Quality Review|Customer Review|Customer Clarification|Closed|Archived|Cancel[l]?ed|Inactive)$/i.test(status)) throw new Error("No recognized ticket status found in detail HTML.");
   return status;
 }
 

@@ -1,4 +1,4 @@
-export const manualStatuses = ["Open", "Open (Revision)", "Assigned", "In Progress", "Incomplete (WIP)", "Quality Review", "Customer Review", "Customer Clarification", "Closed", "Archived", "Canceled"];
+export const manualStatuses = ["Open", "Open (Revision)", "Assigned", "In Progress", "Incomplete (WIP)", "Incomplete (Revision)", "Quality Review", "Customer Review", "Customer Clarification", "Closed", "Archived", "Canceled"];
 
 export function ticketIdFromUrl(value: string): string {
   let url: URL;

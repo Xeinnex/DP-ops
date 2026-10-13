@@ -1,0 +1,17 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+const ts = require("typescript");
+const exportsObject = {};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync("src/lib/queue-links.ts", "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, { exports: exportsObject, URL });
+const client = new URL(exportsObject.clientTicketsUrl("19604"));
+assert.equal(client.origin, "https://jar.designpickle.com");
+assert.equal(client.searchParams.get("q[company_id_eq]"), "19604");
+assert.equal(client.searchParams.get("q[ticket_status]"), "active");
+const creative = new URL(exportsObject.creativeTicketsUrl("5371"));
+assert.equal(creative.searchParams.get("q[designer_id_in][]"), "5371");
+assert.deepEqual(creative.searchParams.getAll("q[state_in][]"), ["1", "2", "3", "4", "5", "7"]);
+assert.equal(exportsObject.creativeTicketsUrl(null), undefined);
+assert.equal(exportsObject.creativeTicketsUrl("abc"), undefined);
+assert.equal(exportsObject.clientTicketsUrl("../../login"), undefined);
+console.log("Queue link checks passed: active client queues, provided creative states and designer filter, missing/invalid IDs.");

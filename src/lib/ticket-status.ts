@@ -44,6 +44,9 @@ export function applyObservation(entries: WorkEntry[], ticket: Ticket): WorkEntr
   if (next === "canceled") reviewFlag = "Canceled — excluded from DT";
   const entry: WorkEntry = {
     ...ticket,
+    designTime: base?.dtLocked && (next !== "in_progress" || base.dtFrozen) ? base.designTime : next === "in_progress" && ticket.designTime === null && base ? base.designTime : ticket.designTime,
+    dtLocked: Boolean(base?.dtLocked) || next === "in_progress",
+    dtFrozen: Boolean(base?.dtFrozen) || Boolean(base?.dtLocked && next !== "in_progress"),
     entryId: `${ticket.id}:${occurrence}`,
     occurrence,
     completion,

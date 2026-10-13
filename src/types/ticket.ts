@@ -21,6 +21,9 @@ export interface Ticket {
   lockedWip?: boolean;
   manualCompletion?: boolean;
   manuallyAdded?: boolean;
+  dtLocked?: boolean;
+  dtFrozen?: boolean;
+  manualDesignTime?: boolean;
 }
 
 export interface TicketResult {

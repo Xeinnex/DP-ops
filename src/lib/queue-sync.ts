@@ -1,6 +1,6 @@
 import "server-only";
 import { scrapeTickets, fetchTicketStatus } from "@/lib/ticket-scraper";
-import { registry, saveFetch, missingStatusCandidates, claimDetailCheck, saveDetailCheck } from "@/lib/database";
+import { registry, saveFetch, missingStatusCandidates, claimDetailCheck, saveDetailCheck, capturePreviousProgress } from "@/lib/database";
 
 const globalLock = globalThis as typeof globalThis & { dpQueueBusy?: boolean };
 export async function withQueueLock<T>(task: () => Promise<T>) {
@@ -9,10 +9,11 @@ export async function withQueueLock<T>(task: () => Promise<T>) {
   try { return await task(); } finally { globalLock.dpQueueBusy = false; }
 }
 
-export async function syncSource(source: "clients" | "creatives", teamId: string, day: string) {
+export async function syncSource(source: "clients" | "creatives", teamId: string, day: string, capture = true) {
+  if (capture) capturePreviousProgress(day);
   const clientUrl = new URL("https://jar.designpickle.com/admin/tickets");
   const configured = registry().clients;
-  configured.forEach((client) => clientUrl.searchParams.append("q[company_id_in][]", client.id));
+  configured.forEach((client) => clientUrl.searchParams.append("q[company_id_in][]", client.companyId || client.id));
   clientUrl.searchParams.set("q[ticket_status]", "active");
   const result = source === "clients" && !configured.length ? { tickets: [], fetchedAt: new Date().toISOString(), pagesFetched: 0, warnings: [] }
     : await scrapeTickets({ source, teamId, clientUrl: source === "clients" ? clientUrl.toString() : undefined });
@@ -21,8 +22,9 @@ export async function syncSource(source: "clients" | "creatives", teamId: string
 }
 
 export async function syncDashboard(day: string) {
-  const clients = await syncSource("clients", "347", day);
-  const creatives = await syncSource("creatives", "347", day);
+  capturePreviousProgress(day);
+  const clients = await syncSource("clients", "347", day, false);
+  const creatives = await syncSource("creatives", "347", day, false);
   const visible = new Set([...clients.tickets, ...creatives.tickets].map((ticket) => ticket.id));
   const warnings: string[] = [];
   let checked = 0;

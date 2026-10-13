@@ -8,6 +8,8 @@ import type { TicketResult } from "@/types/ticket";
 import { groupTicketsByClient, formatDesignTime } from "@/lib/design-time";
 import { countedMinutes } from "@/lib/ticket-status";
 import type { Ticket } from "@/types/ticket";
+import { QueueLink } from "@/components/queue-link";
+import { clientTicketsUrl, creativeTicketsUrl } from "@/lib/queue-links";
 
 const totalDesignTime = (tickets: Ticket[]) => formatDesignTime(tickets.reduce((sum, ticket) => sum + countedMinutes(ticket), 0));
 
@@ -26,6 +28,12 @@ export function TicketsView({ source = "clients" }: { source?: "clients" | "crea
   const creativeAlias = (name: string) => records.creatives.find((creative) => normalizeName(creative.name) === normalizeName(name))?.alias ?? name;
   const otherTeam = (name: string) => Boolean(name) && !/^(not assigned|unassigned)$/i.test(name) && !records.creatives.some((creative) => normalizeName(creative.name) === normalizeName(name));
   const clients = records.clients;
+  const groupQueue = (name: string, tickets: Ticket[]) => {
+    if (isCrew) return creativeTicketsUrl(records.creatives.find((creative) => normalizeName(creative.name) === normalizeName(tickets[0]?.assignee || ""))?.designerId);
+    const client = clients.find((client) => normalizeName(client.name) === normalizeName(name) || client.id === tickets[0]?.clientId || client.companyId === tickets[0]?.clientId);
+    const companyId = client?.companyId || client?.id || tickets[0]?.clientId;
+    return companyId ? clientTicketsUrl(companyId) : undefined;
+  };
   useEffect(() => {
     const controller = new AbortController();
     const query = new URLSearchParams({ source });
@@ -99,11 +107,11 @@ export function TicketsView({ source = "clients" }: { source?: "clients" | "crea
           <thead className="bg-inset text-xs text-muted"><tr>{["Ticket", "Title", "Creative", "Status", "Position", "Design time", "Time spent"].map((heading) => <th key={heading} scope="col" className="px-5 py-4 font-medium">{heading}</th>)}</tr></thead>
           {groups.map(([clientName, clientTickets], index) => <tbody key={clientName}>
             {index > 0 && <tr aria-hidden="true" className="bg-canvas"><td colSpan={7} className="h-6 border-y border-line p-0" /></tr>}
-            <tr className="border-t border-line bg-lime/5"><th scope="rowgroup" colSpan={7} className="px-5 py-4"><div className="flex flex-wrap items-center justify-between gap-3"><span className="font-semibold text-lime">{clientName}<span className="ml-3 text-xs font-normal text-muted">{clientTickets.length} {clientTickets.length === 1 ? "ticket" : "tickets"}</span></span><span className="text-xs font-medium text-ink">DT subtotal <span className="ml-2 font-mono text-lime">{totalDesignTime(clientTickets)}</span></span></div></th></tr>
+            <tr className="border-t border-line bg-lime/5"><th scope="rowgroup" colSpan={7} className="px-5 py-4"><div className="flex flex-wrap items-center justify-between gap-3"><span className="font-semibold text-lime"><QueueLink href={groupQueue(clientName, clientTickets)}>{clientName}</QueueLink><span className="ml-3 text-xs font-normal text-muted">{clientTickets.length} {clientTickets.length === 1 ? "ticket" : "tickets"}</span></span><span className="text-xs font-medium text-ink">DT subtotal <span className="ml-2 font-mono text-lime">{totalDesignTime(clientTickets)}</span></span></div></th></tr>
             {clientTickets.map((ticket) => <tr key={ticket.entryId || ticket.id} className="border-t border-line hover:bg-inset/70">
               <td className="px-5 py-5"><a href={ticket.url} target="_blank" rel="noopener noreferrer" className="font-mono text-xs font-medium text-blue hover:underline">#{ticket.id} ↗</a>{(ticket.occurrence ?? 1) > 1 && <span className="mt-1 block text-xs text-lime">Revision {(ticket.occurrence ?? 1) - 1}</span>}</td>
-              <td className="max-w-sm px-5 py-5 font-medium text-ink">{ticket.title}{isCrew && <p className="mt-1 text-xs font-normal text-muted">{ticket.client}</p>}{ticket.retained && <span className="mt-2 block text-xs font-normal text-amber-200">Retained daily work · no longer in this queue</span>}</td>
-              <td className="px-5 py-5 text-muted">{creativeAlias(ticket.assignee)}{otherTeam(ticket.assignee) && <span className="mt-1 block w-fit rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-xs text-amber-200">Other team</span>}</td>
+              <td className="max-w-sm px-5 py-5 font-medium text-ink">{ticket.title}{isCrew && <p className="mt-1 text-xs font-normal text-muted"><QueueLink href={ticket.clientId ? clientTicketsUrl(ticket.clientId) : undefined}>{ticket.client}</QueueLink></p>}{ticket.retained && <span className="mt-2 block text-xs font-normal text-amber-200">Retained daily work · no longer in this queue</span>}</td>
+              <td className="px-5 py-5 text-muted"><QueueLink href={creativeTicketsUrl(records.creatives.find((creative) => normalizeName(creative.name) === normalizeName(ticket.assignee))?.designerId)}>{creativeAlias(ticket.assignee)}</QueueLink>{otherTeam(ticket.assignee) && <span className="mt-1 block w-fit rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-xs text-amber-200">Other team</span>}</td>
               <td className="px-5 py-5"><span className="inline-block rounded-full border border-blue/30 bg-blue/10 px-3 py-1 text-xs text-ink">{ticket.status}</span>{ticket.reviewFlag && <p className="mt-1 text-xs text-amber-200">{ticket.reviewFlag}</p>}</td>
               <td className="px-5 py-5 text-muted">{ticket.position ?? "—"}</td>
               <td className="px-5 py-5 font-mono text-xs text-lime">{formatDesignTime(countedMinutes(ticket))}</td>

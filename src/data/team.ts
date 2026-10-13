@@ -1,14 +1,14 @@
 export const defaultTeam = { id: "347", name: "Team 04" };
 
 export const creatives = [
-  { name: "Ailen Ximena Cristaldo", alias: "Ailen" },
-  { name: "Diana Carolina Rodriguez Nino", alias: "Diana" },
-  { name: "Edgar Jean-Pierre Torres Chamorro", alias: "Edgar" },
-  { name: "Faisal Adly Aditya Pradana", alias: "Faisal" },
-  { name: "Muhammad Haqqy Naazily Rifa'i", alias: "Haqqy" },
-  { name: "Juan Esteban Osorio Tehelen", alias: "Juanes" },
-  { name: "Muhammad Triadi Santoso Azis", alias: "Andrew" },
-  { name: "Martin Ignacio Butchart Reyes", alias: "Nacho" },
+  { name: "Ailen Ximena Cristaldo", alias: "Ailen", designerId: "2812" },
+  { name: "Diana Carolina Rodriguez Nino", alias: "Diana", designerId: "1516" },
+  { name: "Edgar Jean-Pierre Torres Chamorro", alias: "Edgar", designerId: "5371" },
+  { name: "Faisal Adly Aditya Pradana", alias: "Faisal", designerId: "2191" },
+  { name: "Muhammad Haqqy Naazily Rifa'i", alias: "Haqqy", designerId: "1238" },
+  { name: "Juan Esteban Osorio Tehelen", alias: "Juanes", designerId: "8284" },
+  { name: "Muhammad Triadi Santoso Azis", alias: "Andrew", designerId: "2052" },
+  { name: "Martin Ignacio Butchart Reyes", alias: "Nacho", designerId: "1520" },
 ];
 
 const normalize = (name: string) => name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[’‘]/g, "'").replace(/\s+/g, " ").trim().toLowerCase();

@@ -8,6 +8,7 @@ import type { Registry, ClientRecord, CreativeRecord, DailyData } from "@/types/
 import type { Ticket, TicketResult } from "@/types/ticket";
 import { today } from "@/lib/daily";
 import { applyObservation, statusKey, type WorkEntry } from "@/lib/ticket-status";
+import { creativeProgress } from "@/lib/creative-progress";
 
 let connection: Database.Database | undefined;
 
@@ -29,23 +30,31 @@ export function db() {
     CREATE TABLE IF NOT EXISTS detail_checks (day TEXT NOT NULL,ticketId TEXT NOT NULL,checkedAt TEXT NOT NULL,status TEXT,error TEXT,PRIMARY KEY(day,ticketId));
     CREATE TABLE IF NOT EXISTS status_observations (id INTEGER PRIMARY KEY AUTOINCREMENT,day TEXT NOT NULL,ticketId TEXT NOT NULL,fetchedAt TEXT NOT NULL,payload TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS manual_completions (day TEXT NOT NULL,entryId TEXT NOT NULL,completedAt TEXT NOT NULL,PRIMARY KEY(day,entryId));
+    CREATE TABLE IF NOT EXISTS design_time_edits (id INTEGER PRIMARY KEY AUTOINCREMENT,day TEXT NOT NULL,entryId TEXT NOT NULL,designTime TEXT NOT NULL,editedAt TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS previous_progress (day TEXT NOT NULL,creativeId TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(day,creativeId));
   `);
+  const clientColumns = connection.prepare("PRAGMA table_info(clients)").all() as { name: string }[];
+  if (!clientColumns.some((column) => column.name === "companyId")) connection.exec("ALTER TABLE clients ADD COLUMN companyId TEXT");
+  const creativeColumns = connection.prepare("PRAGMA table_info(creatives)").all() as { name: string }[];
+  const addedDesignerId = !creativeColumns.some((column) => column.name === "designerId");
+  if (addedDesignerId) connection.exec("ALTER TABLE creatives ADD COLUMN designerId TEXT");
   if (!connection.prepare("SELECT value FROM settings WHERE key='seeded'").get()) {
     connection.transaction(() => {
-      const clientInsert = connection!.prepare("INSERT INTO clients VALUES (@id,@name,@dailyMinutes,@pc)");
+      const clientInsert = connection!.prepare("INSERT INTO clients(id,name,dailyMinutes,pc) VALUES (@id,@name,@dailyMinutes,@pc)");
       const hours: Record<string, number> = { "104329": 8, "84083": 8, "19155": 6, "7789": 1, "12925": 1, "91457": 33, "19001": 1, "78615": 14, "89744": 3, "94907": 3 };
       for (const client of seedClients) clientInsert.run({ ...client, dailyMinutes: (hours[client.id] ?? 2) * 60, pc: ["104329", "84083", "91457", "78615"].includes(client.id) ? "PC AD" : client.id === "19155" ? "PC" : "NO PC" });
       const scopes: Record<string, string[]> = { Ailen: ["GD", "PD", "FIG"], Diana: ["GD"], Edgar: ["GD", "PD"], Faisal: ["GD"], Haqqy: ["CI", "GD"], Juanes: ["MG"], Andrew: ["VE"], Nacho: ["GD"] };
-      const creativeInsert = connection!.prepare("INSERT INTO creatives VALUES (@id,@name,@alias,@scopes,@capacityMinutes)");
-      for (const creative of seedCreatives) creativeInsert.run({ ...creative, id: creative.alias.toLowerCase(), scopes: JSON.stringify(scopes[creative.alias]), capacityMinutes: 405 });
+      const creativeInsert = connection!.prepare("INSERT INTO creatives(id,name,alias,scopes,capacityMinutes,designerId) VALUES (@id,@name,@alias,@scopes,@capacityMinutes,@designerId)");
+      for (const creative of seedCreatives) creativeInsert.run({ ...creative, designerId: creative.designerId ?? null, id: creative.alias.toLowerCase(), scopes: JSON.stringify(scopes[creative.alias]), capacityMinutes: 405 });
       connection!.prepare("INSERT INTO settings VALUES ('seeded','1')").run();
     })();
   }
+  if (addedDesignerId) connection.prepare("UPDATE creatives SET designerId='5371' WHERE alias='Edgar' AND name='Edgar Jean-Pierre Torres Chamorro'").run();
   return connection;
 }
 
 export function registry(): Registry {
-  const clients = db().prepare("SELECT * FROM clients ORDER BY name").all() as ClientRecord[];
+  const clients = db().prepare("SELECT id,COALESCE(companyId,id) AS companyId,name,dailyMinutes,pc FROM clients ORDER BY name").all() as ClientRecord[];
   const rows = db().prepare("SELECT * FROM creatives ORDER BY alias").all() as (Omit<CreativeRecord, "scopes"> & { scopes: string })[];
   return { clients, creatives: rows.map((row) => ({ ...row, scopes: JSON.parse(row.scopes) })) };
 }
@@ -80,7 +89,12 @@ function dailyTickets(day: string, teamId = "347") {
   observations.sort((a, b) => a.at.localeCompare(b.at) || a.order - b.order);
   const entries = new Map<string, WorkEntry[]>();
   const overrides = new Map((db().prepare("SELECT entryId,completedAt FROM manual_completions WHERE day=?").all(day) as { entryId: string; completedAt: string }[]).map((row) => [row.entryId, row.completedAt]));
-  const applyManual = (entry: WorkEntry, at?: string): WorkEntry => overrides.has(entry.entryId) && (!at || overrides.get(entry.entryId)! <= at) ? { ...entry, completion: ["canceled", "customer_clarification", "draft", "inactive"].includes(statusKey(entry.status)) ? 0 : 1, manualCompletion: true, lockedWip: statusKey(entry.status) === "incomplete" || entry.lockedWip } : entry;
+  const edits = db().prepare("SELECT entryId,designTime,editedAt FROM design_time_edits WHERE day=? ORDER BY id").all(day) as { entryId: string; designTime: string; editedAt: string }[];
+  const applyManual = (entry: WorkEntry, at?: string): WorkEntry => {
+    const edit = edits.findLast((edit) => edit.entryId === entry.entryId && (!at || edit.editedAt <= at));
+    const corrected = edit ? { ...entry, designTime: edit.designTime, manualDesignTime: true } : entry;
+    return overrides.has(entry.entryId) && (!at || overrides.get(entry.entryId)! <= at) ? { ...corrected, completion: ["canceled", "customer_clarification", "draft", "inactive"].includes(statusKey(entry.status)) ? 0 : 1, manualCompletion: true, lockedWip: statusKey(entry.status) === "incomplete" || entry.lockedWip } : corrected;
+  };
   for (const { ticket, at } of observations) entries.set(ticket.id, applyObservation((entries.get(ticket.id) ?? []).map((entry) => applyManual(entry, at)), ticket));
   const active = new Set((db().prepare("SELECT DISTINCT ticketId FROM queue_snapshots WHERE day=? AND active=1 AND (source='clients' OR scope=?)").all(day, teamId) as { ticketId: string }[]).map((row) => row.ticketId));
   const manualIds = new Set(observations.filter(({ ticket }) => ticket.manuallyAdded).map(({ ticket }) => ticket.id));
@@ -100,7 +114,19 @@ export function addManualTicket(ticket: Ticket) {
 export function dailyData(day = today()): DailyData {
   const fetched = db().prepare("SELECT source,scope,MAX(fetchedAt) AS fetchedAt FROM fetch_runs WHERE day=? GROUP BY source,scope").all(day) as DailyData["fetched"];
   const workedTickets = (db().prepare("SELECT payload FROM worked_tickets WHERE day=?").all(day) as { payload: string }[]).map((row) => ({ ...JSON.parse(row.payload), worked: true }));
-  return { ...registry(), day, tickets: dailyTickets(day), workedTickets, fetched };
+  const previousProgress = (db().prepare("SELECT payload FROM previous_progress WHERE day=?").all(day) as { payload: string }[]).map((row) => JSON.parse(row.payload));
+  return { ...registry(), day, tickets: dailyTickets(day), workedTickets, fetched, previousProgress };
+}
+
+export function capturePreviousProgress(day: string) {
+  const data = dailyData(day);
+  db().transaction(() => {
+    db().prepare("DELETE FROM previous_progress WHERE day=?").run(day);
+    if (!data.fetched.length && !data.tickets.length) return;
+    const capturedAt = new Date().toISOString();
+    const insert = db().prepare("INSERT INTO previous_progress VALUES (?,?,?)");
+    for (const progress of creativeProgress(data)) insert.run(day, progress.creativeId, JSON.stringify({ ...progress, capturedAt }));
+  })();
 }
 
 export function markWorked(day: string, ticketId: string, assignee: string, worked: boolean) {
@@ -119,7 +145,14 @@ export function ticketHistory(day: string, ticketId: string, page = 1) {
   const detailChecks = db().prepare("SELECT ticketId,checkedAt,status,error FROM detail_checks WHERE day=? AND (?='' OR ticketId=?) ORDER BY checkedAt DESC").all(day, ticketId, ticketId);
   const statusObservations = (db().prepare("SELECT ticketId,fetchedAt,payload FROM status_observations WHERE day=? AND (?='' OR ticketId=?) ORDER BY id DESC").all(day, ticketId, ticketId) as { ticketId: string; fetchedAt: string; payload: string }[]).map((row) => ({ ...row, payload: JSON.parse(row.payload) as Ticket }));
   const entries = dailyTickets(day).filter((ticket) => !ticketId || ticket.id === ticketId);
-  return { total, page, runs: rows.map((row) => ({ ...row, payload: JSON.parse(row.payload) as TicketResult })), detailChecks, statusObservations, entries };
+  const designTimeEdits = db().prepare("SELECT entryId,designTime,editedAt FROM design_time_edits WHERE day=? AND (?='' OR entryId LIKE ?) ORDER BY id DESC").all(day, ticketId, `${ticketId}:%`);
+  return { total, page, runs: rows.map((row) => ({ ...row, payload: JSON.parse(row.payload) as TicketResult })), detailChecks, statusObservations, entries, designTimeEdits };
+}
+
+export function setDesignTime(day: string, entryId: string, designTime: string) {
+  if (!/^\d{1,4}:[0-5]\d$/.test(designTime)) throw new Error("Use DT in H:MM format, for example 1:30.");
+  if (!dailyTickets(day).some((ticket) => ticket.entryId === entryId)) throw new Error("Daily work entry not found.");
+  db().prepare("INSERT INTO design_time_edits(day,entryId,designTime,editedAt) VALUES (?,?,?,?)").run(day, entryId, designTime, new Date().toISOString());
 }
 
 export function missingStatusCandidates(day: string, visibleIds: Set<string>) {

@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Link from "next/link";
 import { Navigation } from "@/components/navigation";
+import { version } from "../../package.json";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -31,7 +32,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <aside className="border-b border-line bg-panel p-5 md:sticky md:top-0 md:flex md:h-screen md:flex-col md:border-r md:border-b-0 md:p-6">
             <Link href="/" className="mb-8 flex items-center gap-3 text-xl font-bold tracking-tight"><span className="grid h-10 w-10 place-items-center rounded-xl bg-limetext-inset">DP</span>DP-Ops<span className="text-lime">.</span></Link>
             <Navigation />
-            <div className="mt-auto hidden pt-8 md:block"><div className="rounded-xl border border-line p-4"><p className="text-sm font-medium">Creative operations</p><p className="mt-1 text-xs text-muted">Local workspace · v0.1</p></div></div>
+            <div className="mt-auto hidden pt-8 md:block"><div className="rounded-xl border border-line p-4"><p className="text-sm font-medium">Creative operations</p><p className="mt-1 text-xs text-muted">Local workspace · v{version.split(".").slice(0, 2).join(".")}</p></div></div>
           </aside>
           <div className="min-w-0"><header className="flex h-20 items-center justify-between border-b border-line px-6 text-sm sm:px-10"><span className="text-muted">Workspace <span className="mx-2 text-muted">/</span><span className="font-medium text-ink">DP-Ops</span></span><span className="rounded-full border border-line bg-panel px-3 py-1 text-xs text-muted">Local session</span></header><main className="mx-auto max-w-7xl px-6 py-10 sm:px-10 sm:py-12">{children}</main></div>
         </div>
