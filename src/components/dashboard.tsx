@@ -55,7 +55,7 @@ export function Dashboard() {
   const clientRows = data?.clients.map((client) => {
     const tickets = data.tickets.filter((ticket) => ticket.clientId ? ticket.clientId === client.id : normalizeName(ticket.client) === normalizeName(client.name));
     return { client, tickets, allocated: sum(tickets.filter(assigned)), complete: completed(tickets.filter(assigned)) };
-  }) ?? [];
+  }).sort((a, b) => Number(b.tickets.length > 0) - Number(a.tickets.length > 0) || a.client.name.localeCompare(b.client.name)) ?? [];
   const clarifications = data?.tickets.filter((ticket) => statusKey(ticket.status) === "customer_clarification") ?? [];
   const lastFetch = data?.fetched.filter((run) => run.source === "clients" || run.scope === "347").map((run) => run.fetchedAt).sort().at(-1);
 
