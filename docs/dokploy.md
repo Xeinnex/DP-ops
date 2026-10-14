@@ -56,13 +56,13 @@ Authentication is intentionally absent for this test. An unlisted domain is stil
 
 ## Optional local Docker test
 
-With Docker running and `DP_COOKIE` exported securely in your Bash session:
+With Docker running, use the helper to load your local Next.js environment privately (including `DP_COOKIE` from `.env.local`):
 
 ```bash
-docker compose up --build -d
-docker compose logs -f app
+node scripts/docker-local.cjs up --build -d
+node scripts/docker-local.cjs logs -f app
 ```
 
-Open `http://localhost:5087`. Compose publishes only on loopback and uses its own named volume, separate from your current local database. It does not load `.env.local` automatically. `docker compose down` preserves the volume; `docker compose down -v` deletes its data.
+Open `http://localhost:5087`. Compose publishes only on loopback and uses its own named volume, separate from your current local database. Plain `docker compose` does not load `.env.local` automatically; the helper does. `node scripts/docker-local.cjs down` preserves the volume; adding `-v` deletes its data. Restart after editing the cookie with `node scripts/docker-local.cjs up -d --force-recreate`.
 
 Dokploy Application deployment uses the Dockerfile directly, not this local Compose port mapping.
