@@ -40,6 +40,6 @@ export function WorkspaceShell({ children, version }: { children: ReactNode; ver
         <div className="mt-auto pt-8"><div className="rounded-xl border border-line p-4"><p className="text-sm font-medium">Creative operations</p><p className="mt-2 text-xs text-muted">Local session</p><p className="mt-1 text-xs text-muted">Local workspace · v{version}</p></div></div>
       </div>
     </aside>
-    <div className="min-w-0 lg:ml-60"><main className="mx-auto max-w-7xl px-3 pb-8 pt-20 sm:px-6 sm:pb-12 lg:px-10 lg:pt-8">{children}</main></div>
+    <div className="min-w-0 lg:ml-60"><main className="mx-auto max-w-7xl px-3 pb-8 pt-16 sm:px-6 sm:pb-12 lg:px-10 lg:pt-8">{children}</main></div>
   </div>;
 }
