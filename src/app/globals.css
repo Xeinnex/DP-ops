@@ -19,3 +19,8 @@ button, select { font-family: inherit; }
 button:not(:disabled), select { cursor: pointer; }
 :focus-visible { outline: 2px solid #d5ff02; outline-offset: 4px; }
 ::selection { background: #d5ff02; color: #242424; }
+
+/* Space the controls themselves below the fixed mobile navigation strip. */
+@media (width < 64rem) {
+  .dashboard-controls { padding-top: 20px; }
+}
