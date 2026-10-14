@@ -1,3 +1,4 @@
+import { allowedRequestOrigin } from "@/lib/request-origin";
 import { db, registry } from "@/lib/database";
 import { normalizeName } from "@/lib/daily";
 import { connection } from "next/server";
@@ -5,8 +6,7 @@ import { connection } from "next/server";
 export async function GET() { await connection(); return Response.json(registry(), { headers: { "Cache-Control": "no-store" } }); }
 
 export async function POST(request: Request) {
-  const origin = request.headers.get("origin");
-  if (origin && origin !== `${new URL(request.url).protocol}//${request.headers.get("host")}`) return Response.json({ error: "Request origin is not allowed." }, { status: 403 });
+  if (!allowedRequestOrigin(request)) return Response.json({ error: "Request origin is not allowed." }, { status: 403 });
   try {
     const body = await request.json();
     if (!["clients", "creatives"].includes(body.kind) || typeof body.id !== "string" || !body.id.trim()) throw new Error("Invalid record.");

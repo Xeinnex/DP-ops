@@ -1,0 +1,16 @@
+# Optional local container test. Dokploy Applications use Dockerfile directly.
+services:
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:5087:5087"
+    environment:
+      DP_DB_PATH: /app/data/dp-ops.sqlite
+      DP_COOKIE: ${DP_COOKIE:?Set DP_COOKIE in the shell before starting Compose}
+      APP_ORIGIN: http://localhost:5087
+    volumes:
+      - dp-ops-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  dp-ops-data:

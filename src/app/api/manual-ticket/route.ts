@@ -1,10 +1,10 @@
+import { allowedRequestOrigin } from "@/lib/request-origin";
 import { addManualTicket, registry } from "@/lib/database";
 import { fetchTicketDetail } from "@/lib/ticket-scraper";
 import { manualStatuses, ticketIdFromUrl } from "@/lib/manual-ticket";
 
 export async function POST(request: Request) {
-  const origin = request.headers.get("origin");
-  if (origin && origin !== `${new URL(request.url).protocol}//${request.headers.get("host")}`) return Response.json({ error: "Request origin is not allowed." }, { status: 403 });
+  if (!allowedRequestOrigin(request)) return Response.json({ error: "Request origin is not allowed." }, { status: 403 });
   try {
     const body = await request.json();
     if (typeof body.url !== "string" || !["lookup", "add"].includes(body.action)) throw new Error("Invalid manual ticket request.");

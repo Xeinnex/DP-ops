@@ -1,5 +1,7 @@
 # DP-Ops
 
+For Docker and Dokploy deployment (Node 22, port 5087, persistent SQLite), see [the deployment guide](docs/dokploy.md).
+
 Local Next.js creative operations workspace with SQLite daily history.
 
 ```bash

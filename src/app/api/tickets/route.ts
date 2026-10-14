@@ -1,3 +1,4 @@
+import { allowedRequestOrigin } from "@/lib/request-origin";
 import { savedTickets } from "@/lib/database";
 import { syncSource, withQueueLock } from "@/lib/queue-sync";
 import { today, validDay } from "@/lib/daily";
@@ -12,8 +13,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const origin = request.headers.get("origin");
-  if (origin && origin !== `${new URL(request.url).protocol}//${request.headers.get("host")}`) return Response.json({ error: "Request origin is not allowed." }, { status: 403 });
+  if (!allowedRequestOrigin(request)) return Response.json({ error: "Request origin is not allowed." }, { status: 403 });
   const params = new URL(request.url).searchParams;
   const source = params.get("source") || "clients";
   const teamId = params.get("teamId") || "347";
