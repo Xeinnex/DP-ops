@@ -4,19 +4,23 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { clients as seedClients } from "@/data/clients";
 import { creatives as seedCreatives } from "@/data/team";
-import type { Registry, ClientRecord, CreativeRecord, DailyData } from "@/types/operations";
+import type { Registry, ClientRecord, CreativeRecord, DailyData, CreativeAvailability } from "@/types/operations";
 import type { Ticket, TicketResult } from "@/types/ticket";
 import { today } from "@/lib/daily";
 import { applyObservation, statusKey, type WorkEntry } from "@/lib/ticket-status";
 import { creativeProgress } from "@/lib/creative-progress";
+import { outsideTeam, outsideStatuses, type OutsideStatus } from "@/lib/outside-tickets";
 
 let connection: Database.Database | undefined;
+const databaseCache = globalThis as typeof globalThis & { dpDatabase?: Database.Database; dpDatabaseSchema?: number };
+const databaseSchema = 3;
 
 export function db() {
-  if (connection) return connection;
+  if (connection?.open && databaseCache.dpDatabaseSchema === databaseSchema) return connection;
+  if (databaseCache.dpDatabase?.open && databaseCache.dpDatabaseSchema === databaseSchema) { connection = databaseCache.dpDatabase; return connection; }
   const filename = resolve(/* turbopackIgnore: true */ process.env.DP_DB_PATH || "data/dp-ops.sqlite");
   mkdirSync(dirname(filename), { recursive: true });
-  connection = new Database(filename);
+  connection = databaseCache.dpDatabase?.open ? databaseCache.dpDatabase : new Database(filename);
   connection.pragma("journal_mode = WAL");
   connection.pragma("busy_timeout = 5000");
   connection.exec(`
@@ -32,12 +36,16 @@ export function db() {
     CREATE TABLE IF NOT EXISTS manual_completions (day TEXT NOT NULL,entryId TEXT NOT NULL,completedAt TEXT NOT NULL,PRIMARY KEY(day,entryId));
     CREATE TABLE IF NOT EXISTS design_time_edits (id INTEGER PRIMARY KEY AUTOINCREMENT,day TEXT NOT NULL,entryId TEXT NOT NULL,designTime TEXT NOT NULL,editedAt TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS previous_progress (day TEXT NOT NULL,creativeId TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(day,creativeId));
+    CREATE TABLE IF NOT EXISTS daily_availability (day TEXT NOT NULL,creativeId TEXT NOT NULL,availability TEXT NOT NULL,PRIMARY KEY(day,creativeId));
+    CREATE TABLE IF NOT EXISTS outside_statuses (day TEXT NOT NULL,entryId TEXT NOT NULL,assignee TEXT NOT NULL,status TEXT NOT NULL,PRIMARY KEY(day,entryId,assignee));
+    CREATE TABLE IF NOT EXISTS ticket_controls (day TEXT NOT NULL,entryId TEXT NOT NULL,assignee TEXT NOT NULL,delivered INTEGER,noBandwidth INTEGER NOT NULL DEFAULT 0,designTime TEXT,PRIMARY KEY(day,entryId,assignee));
   `);
   const clientColumns = connection.prepare("PRAGMA table_info(clients)").all() as { name: string }[];
   if (!clientColumns.some((column) => column.name === "companyId")) connection.exec("ALTER TABLE clients ADD COLUMN companyId TEXT");
   const creativeColumns = connection.prepare("PRAGMA table_info(creatives)").all() as { name: string }[];
   const addedDesignerId = !creativeColumns.some((column) => column.name === "designerId");
   if (addedDesignerId) connection.exec("ALTER TABLE creatives ADD COLUMN designerId TEXT");
+  if (!creativeColumns.some((column) => column.name === "availability")) connection.exec("ALTER TABLE creatives ADD COLUMN availability TEXT NOT NULL DEFAULT 'available'");
   if (!connection.prepare("SELECT value FROM settings WHERE key='seeded'").get()) {
     connection.transaction(() => {
       const clientInsert = connection!.prepare("INSERT INTO clients(id,name,dailyMinutes,pc) VALUES (@id,@name,@dailyMinutes,@pc)");
@@ -50,6 +58,8 @@ export function db() {
     })();
   }
   if (addedDesignerId) connection.prepare("UPDATE creatives SET designerId='5371' WHERE alias='Edgar' AND name='Edgar Jean-Pierre Torres Chamorro'").run();
+  databaseCache.dpDatabase = connection;
+  databaseCache.dpDatabaseSchema = databaseSchema;
   return connection;
 }
 
@@ -61,6 +71,7 @@ export function registry(): Registry {
 
 export function saveFetch(result: TicketResult, source: string, scope: string, day = today()) {
   db().transaction(() => {
+    for (const creative of registry().creatives) db().prepare("INSERT OR IGNORE INTO daily_availability VALUES (?,?,?)").run(day, creative.id, creative.availability || "available");
     db().prepare("UPDATE queue_snapshots SET active=0 WHERE day=? AND source=? AND scope=?").run(day, source, scope);
     const upsert = db().prepare("INSERT INTO queue_snapshots VALUES (?,?,?,?,?,1,?) ON CONFLICT(day,source,scope,ticketId) DO UPDATE SET payload=excluded.payload,active=1,fetchedAt=excluded.fetchedAt");
     for (const ticket of result.tickets) upsert.run(day, source, scope, ticket.id, JSON.stringify(ticket), result.fetchedAt);
@@ -93,18 +104,43 @@ function dailyTickets(day: string, teamId = "347") {
   const applyManual = (entry: WorkEntry, at?: string): WorkEntry => {
     const edit = edits.findLast((edit) => edit.entryId === entry.entryId && (!at || edit.editedAt <= at));
     const corrected = edit ? { ...entry, designTime: edit.designTime, manualDesignTime: true } : entry;
-    return overrides.has(entry.entryId) && (!at || overrides.get(entry.entryId)! <= at) ? { ...corrected, completion: ["canceled", "customer_clarification", "draft", "inactive"].includes(statusKey(entry.status)) ? 0 : 1, manualCompletion: true, lockedWip: statusKey(entry.status) === "incomplete" || entry.lockedWip } : corrected;
+    return overrides.has(entry.entryId) && (!at || overrides.get(entry.entryId)! <= at) ? { ...corrected, completion: ["canceled", "customer_clarification", "draft", "inactive"].includes(statusKey(entry.status)) ? 0 : 1, manualCompletion: true, dtLocked: true, dtFrozen: true, lockedWip: statusKey(entry.status) === "incomplete" || entry.lockedWip } : corrected;
   };
   for (const { ticket, at } of observations) entries.set(ticket.id, applyObservation((entries.get(ticket.id) ?? []).map((entry) => applyManual(entry, at)), ticket));
   const active = new Set((db().prepare("SELECT DISTINCT ticketId FROM queue_snapshots WHERE day=? AND active=1 AND (source='clients' OR scope=?)").all(day, teamId) as { ticketId: string }[]).map((row) => row.ticketId));
   const manualIds = new Set(observations.filter(({ ticket }) => ticket.manuallyAdded).map(({ ticket }) => ticket.id));
-  return [...entries.values()].flat().map((entry) => applyManual(entry)).filter((ticket) => !ticket.excluded).map((ticket) => ({ ...ticket, manuallyAdded: manualIds.has(ticket.id), retained: !active.has(ticket.id) }));
+  const outsideOverrides = db().prepare("SELECT entryId,assignee,status FROM outside_statuses WHERE day=?").all(day) as { entryId: string; assignee: string; status: OutsideStatus }[];
+  const creatives = registry().creatives;
+  const controls = db().prepare("SELECT entryId,assignee,delivered,noBandwidth,designTime FROM ticket_controls WHERE day=?").all(day) as { entryId: string; assignee: string; delivered: number | null; noBandwidth: number; designTime: string | null }[];
+  return [...entries.values()].flat().map((entry) => applyManual(entry)).filter((ticket) => !ticket.excluded).map((ticket) => {
+    const override = outsideTeam(ticket, creatives) ? outsideOverrides.find((row) => row.entryId === ticket.entryId && row.assignee === ticket.assignee) : undefined;
+    const applies = override && !["canceled", "customer_clarification"].includes(statusKey(ticket.status));
+    const control = controls.find((row) => row.entryId === ticket.entryId && row.assignee === ticket.assignee);
+    const delivery = control && control.delivered !== null && !["canceled", "customer_clarification"].includes(statusKey(ticket.status));
+    return { ...ticket, ...(applies ? { outsideStatus: override.status, completion: override.status === "Delivered" ? 1 : override.status === "In Progress" ? 0.5 : 0 } : {}), ...(delivery ? { deliveryOverride: Boolean(control.delivered), completion: control.delivered ? 1 : 0, dtLocked: true, dtFrozen: true, designTime: ticket.manualDesignTime ? ticket.designTime : control.designTime ?? ticket.designTime } : {}), noBandwidth: Boolean(control?.noBandwidth), manuallyAdded: manualIds.has(ticket.id), retained: !active.has(ticket.id) };
+  });
+}
+
+export function setTicketControl(day: string, entryId: string, action: "delivery" | "bandwidth", enabled: boolean) {
+  const ticket = dailyTickets(day).find((entry) => entry.entryId === entryId);
+  if (!ticket) throw new Error("Daily work entry not found.");
+  if (action === "delivery") db().prepare("INSERT INTO ticket_controls(day,entryId,assignee,delivered,designTime) VALUES (?,?,?,?,?) ON CONFLICT(day,entryId,assignee) DO UPDATE SET delivered=excluded.delivered,designTime=excluded.designTime").run(day, entryId, ticket.assignee, Number(enabled), ticket.designTime);
+  else db().prepare("INSERT INTO ticket_controls(day,entryId,assignee,noBandwidth) VALUES (?,?,?,?) ON CONFLICT(day,entryId,assignee) DO UPDATE SET noBandwidth=excluded.noBandwidth").run(day, entryId, ticket.assignee, Number(enabled));
+}
+
+export function setOutsideStatus(day: string, entryId: string, status: OutsideStatus | null) {
+  if (status !== null && !outsideStatuses.includes(status)) throw new Error("Choose Assigned, In Progress, or Delivered.");
+  const ticket = dailyTickets(day).find((entry) => entry.entryId === entryId);
+  if (!ticket || !outsideTeam(ticket, registry().creatives)) throw new Error("Outside-team ticket not found for that day.");
+  if (status === null) db().prepare("DELETE FROM outside_statuses WHERE day=? AND entryId=? AND assignee=?").run(day, entryId, ticket.assignee);
+  else db().prepare("INSERT OR REPLACE INTO outside_statuses VALUES (?,?,?,?)").run(day, entryId, ticket.assignee, status);
 }
 
 export function addManualTicket(ticket: Ticket) {
   const day = today();
   db().transaction(() => {
     if (dailyTickets(day).some((entry) => entry.id === ticket.id)) throw new Error("This ticket is already saved for today. Use its existing work entry to avoid counting DT twice.");
+    for (const creative of registry().creatives) db().prepare("INSERT OR IGNORE INTO daily_availability VALUES (?,?,?)").run(day, creative.id, creative.availability || "available");
     const result: TicketResult = { tickets: [{ ...ticket, manuallyAdded: true }], fetchedAt: new Date().toISOString(), pagesFetched: 0, warnings: [] };
     db().prepare("INSERT INTO fetch_runs(day,source,scope,fetchedAt,pages,payload) VALUES (?,?,?,?,?,?)").run(day, "manual", "manual", result.fetchedAt, 0, JSON.stringify(result));
   })();
@@ -115,7 +151,18 @@ export function dailyData(day = today()): DailyData {
   const fetched = db().prepare("SELECT source,scope,MAX(fetchedAt) AS fetchedAt FROM fetch_runs WHERE day=? GROUP BY source,scope").all(day) as DailyData["fetched"];
   const workedTickets = (db().prepare("SELECT payload FROM worked_tickets WHERE day=?").all(day) as { payload: string }[]).map((row) => ({ ...JSON.parse(row.payload), worked: true }));
   const previousProgress = (db().prepare("SELECT payload FROM previous_progress WHERE day=?").all(day) as { payload: string }[]).map((row) => JSON.parse(row.payload));
-  return { ...registry(), day, tickets: dailyTickets(day), workedTickets, fetched, previousProgress };
+  const records = registry();
+  const availability = new Map((db().prepare("SELECT creativeId,availability FROM daily_availability WHERE day=?").all(day) as { creativeId: string; availability: CreativeAvailability }[]).map((row) => [row.creativeId, row.availability]));
+  const creatives = records.creatives.map((creative) => ({ ...creative, availability: day === today() ? creative.availability : availability.get(creative.id) || "available" as CreativeAvailability }));
+  return { ...records, creatives, day, tickets: dailyTickets(day), workedTickets, fetched, previousProgress };
+}
+
+export function setCreativeAvailability(creativeId: string, availability: CreativeAvailability) {
+  if (!["available", "half_day", "away"].includes(availability)) throw new Error("Invalid availability.");
+  db().transaction(() => {
+    if (!db().prepare("UPDATE creatives SET availability=? WHERE id=?").run(availability, creativeId).changes) throw new Error("Creative not found.");
+    db().prepare("INSERT OR REPLACE INTO daily_availability VALUES (?,?,?)").run(today(), creativeId, availability);
+  })();
 }
 
 export function capturePreviousProgress(day: string) {

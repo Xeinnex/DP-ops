@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CreativeAvatar } from "@/components/creative-avatar";
+import type { CreativeAvailability } from "@/types/operations";
 
-export function CreativeSummary({ alias, children }: { alias: string; children: ReactNode }) {
+export function CreativeSummary({ alias, availability, children }: { alias: string; availability?: CreativeAvailability; children: ReactNode }) {
   const content = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(96);
 
@@ -21,7 +22,7 @@ export function CreativeSummary({ alias, children }: { alias: string; children: 
   }, []);
 
   return <div className="@container"><div className="flex items-center gap-4 @max-[360px]:flex-col">
-    <CreativeAvatar alias={alias} size={height} />
+    <CreativeAvatar alias={alias} availability={availability} size={height} />
     <div ref={content} className="min-w-0 w-full flex-1">{children}</div>
   </div></div>;
 }

@@ -11,6 +11,10 @@ import { DesignTimeEditor } from "@/components/design-time-editor";
 import { CreativeSummary } from "@/components/creative-summary";
 import { QueueLink } from "@/components/queue-link";
 import { clientTicketsUrl, creativeTicketsUrl } from "@/lib/queue-links";
+import { availabilityOptions, effectiveCapacity, capacityPercent } from "@/lib/availability";
+import type { CreativeAvailability } from "@/types/operations";
+import { outsideTeam, outsideStatuses, simplifiedStatus, type OutsideStatus } from "@/lib/outside-tickets";
+import { designTimeMinutes } from "@/lib/design-time";
 
 export function Dashboard() {
   const [day, setDay] = useState(today);
@@ -20,6 +24,28 @@ export function Dashboard() {
   const [progress, setProgress] = useState("");
   const [working, setWorking] = useState(false);
   const [adding, setAdding] = useState(false);
+
+  async function updateOutsideStatus(ticket: Ticket, status: OutsideStatus | null) {
+    setWorking(true); setError("");
+    try {
+      const response = await fetch("/api/outside-status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ day, entryId: ticket.entryId, status }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      setData(body);
+    } catch (error) { setError(error instanceof Error ? error.message : "Unable to update ticket status."); }
+    finally { setWorking(false); }
+  }
+
+  async function updateAvailability(creativeId: string, availability: CreativeAvailability) {
+    setWorking(true); setError("");
+    try {
+      const response = await fetch("/api/availability", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ creativeId, availability }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      setData(body); setDay(body.day);
+    } catch (error) { setError(error instanceof Error ? error.message : "Unable to update availability."); }
+    finally { setWorking(false); }
+  }
 
   async function refreshBoth() {
     setRefreshing(true); setError(""); setProgress("Refreshing queues and checking missing statuses…");
@@ -36,12 +62,12 @@ export function Dashboard() {
     } finally { setRefreshing(false); }
   }
 
-  async function updateWork(ticket: Ticket, completion: boolean) {
+  async function updateTicketControl(ticket: Ticket, action: "delivery" | "bandwidth") {
     setWorking(true); setError("");
     try {
-      const body = completion ? { day, entryId: ticket.entryId, complete: !ticket.manualCompletion }
-        : { day, ticketId: ticket.entryId || ticket.id, assignee: ticket.assignee, worked: !ticket.worked };
-      const response = await fetch(completion ? "/api/completion" : "/api/worked", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const enabled = action === "delivery" ? simplifiedStatus(ticket) !== "Delivered" : !ticket.noBandwidth;
+      const body = { day, entryId: ticket.entryId, action, enabled };
+      const response = await fetch("/api/ticket-control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const result = await response.json(); if (!response.ok) throw new Error(result.error); setData(result);
     } catch (error) { setError(error instanceof Error ? error.message : "Unable to update work."); }
     finally { setWorking(false); }
@@ -61,6 +87,7 @@ export function Dashboard() {
     return { client, tickets, allocated: sum(tickets.filter(assigned)), complete: completed(tickets.filter(assigned)) };
   }).sort((a, b) => Number(b.tickets.length > 0) - Number(a.tickets.length > 0) || a.client.name.localeCompare(b.client.name)) ?? [];
   const clarifications = data?.tickets.filter((ticket) => statusKey(ticket.status) === "customer_clarification") ?? [];
+  const outsideTickets = data?.tickets.filter((ticket) => outsideTeam(ticket, data.creatives) && !["canceled", "customer_clarification", "draft", "inactive"].includes(statusKey(ticket.status))).sort((a, b) => a.client.localeCompare(b.client, undefined, { sensitivity: "base" })) ?? [];
   const lastFetch = data?.fetched.filter((run) => run.source === "clients" || run.scope === "347").map((run) => run.fetchedAt).sort().at(-1);
 
   return <div className="space-y-5">
@@ -75,40 +102,98 @@ export function Dashboard() {
     {data && <>
       <section><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Creative bandwidth</h2><div className="flex gap-4 text-xs text-muted"><span><span className="mr-2 inline-block h-2 w-2 rounded-full bg-blue" />Assigned DT</span><span><span className="mr-2 inline-block h-2 w-2 rounded-full bg-lime" />Completed DT</span></div></div>
         <div className="grid gap-4 lg:grid-cols-2">{[...data.creatives].sort((a, b) => scopeRank(a) - scopeRank(b) || a.alias.localeCompare(b.alias)).map((creative) => {
-          const tickets = creativeWork(data.tickets, data.workedTickets, creative.name).filter((ticket) => statusKey(ticket.status) !== "customer_clarification");
+          const tickets = creativeWork(data.tickets, data.workedTickets, creative.name).filter((ticket) => statusKey(ticket.status) !== "customer_clarification").sort((a, b) => outsideStatuses.indexOf(simplifiedStatus(a)) - outsideStatuses.indexOf(simplifiedStatus(b)));
           const used = sum(tickets);
           const done = completed(tickets);
-          const percent = Math.round(used / creative.capacityMinutes * 100);
-          const donePercent = Math.round(done / creative.capacityMinutes * 100);
-          const available = creative.capacityMinutes - used;
+          const capacity = effectiveCapacity(creative);
+          const availability = availabilityOptions.find((option) => option.value === creative.availability) || availabilityOptions[0];
+          const percent = capacityPercent(used, capacity);
+          const donePercent = capacityPercent(done, capacity);
+          const available = capacity - used;
           const allDone = used > 0 && tickets.reduce((total, ticket) => total + completedMinutes(ticket), 0) >= used;
-          const overloaded = used > creative.capacityMinutes;
+          const overloaded = used > capacity;
+          const awayWithTickets = creative.availability === "away" && tickets.some((ticket) => !ticket.noBandwidth && statusKey(ticket.status) !== "canceled");
           const previous = data.previousProgress?.find((progress) => progress.creativeId === creative.id);
-          const changed = previous && (previous.assignedMinutes !== used || previous.completedMinutes !== done || previous.capacityMinutes !== creative.capacityMinutes);
-          return <details key={creative.id} className={`overflow-hidden rounded-xl border ${overloaded ? "border-red-400/30 bg-red-400/5" : allDone ? "border-lime/30 bg-lime/5" : "border-line bg-panel"}`}>
+          const changed = previous && (previous.assignedMinutes !== used || previous.completedMinutes !== done || previous.capacityMinutes !== capacity);
+          return <div key={creative.id} className="relative self-start"><details className={`overflow-hidden rounded-xl border ${awayWithTickets ? "border-red-500/70 bg-red-500/25" : overloaded ? "border-red-400/30 bg-red-400/5" : allDone ? "border-lime/30 bg-lime/5" : "border-line bg-panel"}`}>
             <summary className="cursor-pointer list-none px-5 py-4">
-              <CreativeSummary alias={creative.alias}>
-                <div className="flex flex-wrap justify-between gap-3"><div><h3 className="font-semibold text-lime"><QueueLink href={creativeTicketsUrl(creative.designerId)}>{creative.alias}</QueueLink></h3><p className="mt-1 text-xs text-muted">{creative.scopes.join(" + ") || "No scopes"} · {tickets.length} tickets</p></div><div className="text-right"><p className={available < 0 ? "text-red-300" : "text-ink"}>{signedTime(available)} left</p><p className="mt-1 text-xs text-muted">{percent}% assigned · {donePercent}% complete</p></div></div>
-                <div aria-hidden={!changed} className={`relative mt-2 h-1 overflow-hidden rounded-full bg-inset ${changed ? "visible" : "invisible"}`} aria-label={`${creative.alias} previous refresh`} title={previous ? `Previous refresh: ${signedTime(previous.assignedMinutes)} assigned · ${signedTime(previous.completedMinutes)} completed` : undefined}><div className="absolute inset-y-0 left-0 bg-blue/50" style={{ width: `${previous ? Math.min(previous.assignedMinutes / previous.capacityMinutes * 100, 100) : 0}%` }} /><div className="absolute inset-y-0 left-0 bg-lime/50" style={{ width: `${previous ? Math.min(previous.completedMinutes / previous.capacityMinutes * 100, 100) : 0}%` }} /></div>
-                <div role="progressbar" aria-label={`${creative.alias} completion`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(donePercent, 100)} aria-valuetext={`${signedTime(done)} completed of ${signedTime(creative.capacityMinutes)} capacity; ${signedTime(used)} assigned`} className="relative mt-1 h-3 overflow-hidden rounded-full bg-inset"><div className="absolute inset-y-0 left-0 bg-blue" style={{ width: `${Math.min(percent, 100)}%` }} /><div className="absolute inset-y-0 left-0 bg-lime" style={{ width: `${Math.min(donePercent, 100)}%` }} /></div>
+              <CreativeSummary alias={creative.alias} availability={availability.value}>
+                <div className="flex flex-wrap justify-between gap-3"><div><h3 className={`font-semibold ${availability.value === "away" ? "text-red-500" : availability.value === "half_day" ? "text-yellow-400" : "text-lime"}`}><QueueLink href={creativeTicketsUrl(creative.designerId)}>{creative.alias}</QueueLink>{availability.value !== "available" && <span className={`ml-2 text-[10px] font-medium ${availability.value === "away" ? "text-red-300" : "text-yellow-300"}`}>{availability.value === "half_day" ? "Half day" : "Away"}</span>}</h3><p className="mt-1 text-xs text-muted">{creative.scopes.join(" + ") || "No scopes"} · {tickets.length} tickets</p></div><div className="text-right"><p className={available < 0 ? "text-red-300" : "text-ink"}>{signedTime(available)} left</p><p className="mt-1 text-xs text-muted">{capacity === 0 ? "Away · 0:00 capacity" : `${percent}% assigned · ${donePercent}% complete`}</p></div></div>
+                <div aria-hidden={!changed} className={`relative mt-2 h-1 overflow-hidden rounded-full bg-inset ${changed ? "visible" : "invisible"}`} aria-label={`${creative.alias} previous refresh`} title={previous ? `Previous refresh: ${signedTime(previous.assignedMinutes)} assigned · ${signedTime(previous.completedMinutes)} completed` : undefined}><div className="absolute inset-y-0 left-0 bg-blue/50" style={{ width: `${previous ? Math.min(capacityPercent(previous.assignedMinutes, previous.capacityMinutes), 100) : 0}%` }} /><div className="absolute inset-y-0 left-0 bg-lime/50" style={{ width: `${previous ? Math.min(capacityPercent(previous.completedMinutes, previous.capacityMinutes), 100) : 0}%` }} /></div>
+                <div role="progressbar" aria-label={`${creative.alias} completion`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(donePercent, 100)} aria-valuetext={`${signedTime(done)} completed of ${signedTime(capacity)} capacity; ${signedTime(used)} assigned`} className="relative mt-1 h-3 overflow-hidden rounded-full bg-inset"><div className="absolute inset-y-0 left-0 bg-blue" style={{ width: `${Math.min(percent, 100)}%` }} /><div className="absolute inset-y-0 left-0 bg-lime" style={{ width: `${Math.min(donePercent, 100)}%` }} /></div>
                 <div className="mt-2 flex justify-between gap-2 text-xs text-muted"><span>{signedTime(used)} assigned · <span className="text-lime">{signedTime(done)} completed</span></span><span>Queue ↓</span></div>
               </CreativeSummary>
             </summary>
-            <div className="space-y-3 border-t border-line p-5">{tickets.map((ticket) => <div key={ticket.entryId || ticket.id} className={`rounded-lg border p-3 text-sm ${ticket.reviewFlag || statusKey(ticket.status) === "canceled" ? "border-amber-400/40 bg-amber-400/5" : "border-transparent bg-inset"}`}>
-              <div className="flex justify-between gap-4"><a href={ticket.url} target="_blank" rel="noopener noreferrer"><p className="text-blue">#{ticket.id}{(ticket.occurrence ?? 1) > 1 ? ` · Revision ${(ticket.occurrence ?? 1) - 1}` : ""} · {ticket.title}</p><p className="mt-1 text-xs text-muted">{ticket.client} · {ticket.status} · {Math.round((ticket.completion ?? 0) * 100)}%</p></a><span className="shrink-0 font-mono text-lime">{signedTime(countedMinutes(ticket))}</span></div>
-              {ticket.reviewFlag && <p className="mt-2 text-xs text-amber-200">{ticket.reviewFlag}</p>}
-              <div className="mt-3 flex flex-wrap items-center gap-2">{ticket.manuallyAdded && <span className="text-xs text-blue">Manually added</span>}{ticket.retained && <span className="text-xs text-muted">Retained daily work</span>}{ticket.lockedWip && <span className="text-xs text-lime">WIP complete · locked today</span>}
-                <button disabled={working || refreshing || !ticket.entryId || !data.tickets.some((entry) => entry.entryId === ticket.entryId && normalizeName(entry.assignee) === normalizeName(ticket.assignee))} onClick={() => updateWork(ticket, true)} className="rounded-md border border-lime/30 px-2 py-1 text-xs text-lime disabled:opacity-40">{ticket.manualCompletion ? "Undo completion" : "Mark complete"}</button>
-                <button disabled={working || refreshing} onClick={() => updateWork(ticket, false)} className="rounded-md border border-line px-2 py-1 text-xs text-muted">{ticket.worked ? "Worked · undo" : "Mark worked"}</button>
-                <DesignTimeEditor ticket={ticket} day={day} disabled={working || refreshing || !ticket.entryId || !data.tickets.some((entry) => entry.entryId === ticket.entryId && normalizeName(entry.assignee) === normalizeName(ticket.assignee))} onBusy={setWorking} onSaved={setData} />
-                {ticket.dtLocked && <span className="text-xs text-muted">DT locked</span>}{ticket.manualDesignTime && <span className="text-xs text-blue">DT manually edited</span>}
-              </div>
-            </div>)}{!tickets.length && <p className="text-sm text-muted">No work saved for this day.</p>}</div>
-          </details>;
+            <div className="space-y-1.5 border-t border-line p-4">
+              <div className="flex flex-wrap gap-2" aria-label={`${creative.alias} availability`}>{availabilityOptions.map((option) => <button type="button" key={option.value} aria-pressed={availability.value === option.value} disabled={working || refreshing || day !== today()} onClick={() => updateAvailability(creative.id, option.value)} className={`rounded-md px-2 py-0.5 text-[10px] font-bold disabled:opacity-40 ${option.className} ${availability.value === option.value ? "ring-1 ring-white/60" : "opacity-60 hover:opacity-100"}`}>{option.label}</button>)}</div>
+              {tickets.map((ticket) => {
+                const status = simplifiedStatus(ticket);
+                const canceled = statusKey(ticket.status) === "canceled";
+                const client = data.clients.find((client) => ticket.clientId ? client.id === ticket.clientId || client.companyId === ticket.clientId : normalizeName(client.name) === normalizeName(ticket.client));
+                const editable = Boolean(ticket.entryId && data.tickets.some((entry) => entry.entryId === ticket.entryId && normalizeName(entry.assignee) === normalizeName(ticket.assignee)));
+                const tint = canceled ? "border-red-400/30 bg-red-400/5" : status === "Delivered" ? "border-transparent bg-lime/10" : status === "In Progress" ? "border-transparent bg-yellow-400/10" : "border-transparent bg-inset";
+                const tag = status === "Delivered" ? "bg-lime/15 text-lime" : status === "In Progress" ? "bg-yellow-400/15 text-yellow-300" : "bg-blue/15 text-blue";
+                return <div key={ticket.entryId || ticket.id} title={ticket.reviewFlag} className={`rounded-lg border px-3 py-2 text-sm ${tint} ${ticket.noBandwidth ? "opacity-60" : ""}`}>
+                  <div className="grid grid-cols-[6rem_minmax(0,1fr)_auto] items-center gap-2">
+                    <a href={ticket.url} target="_blank" rel="noopener noreferrer" className="truncate text-[11px] font-bold text-blue hover:underline" title={`Ticket ${ticket.id}${(ticket.occurrence ?? 1) > 1 ? ` · Revision ${(ticket.occurrence ?? 1) - 1}` : ""}`}>#{ticket.id}{(ticket.occurrence ?? 1) > 1 ? ` · R${(ticket.occurrence ?? 1) - 1}` : ""}</a>
+                    <p className={`truncate font-semibold ${client ? "text-ink" : "text-fuchsia-300"}`} title={ticket.client}><QueueLink href={clientTicketsUrl(client?.companyId || client?.id || ticket.clientId || "")}>{ticket.client || "Unknown client"}</QueueLink></p>
+                    <span className="font-mono text-lime" title={ticket.noBandwidth ? "Excluded from workload totals" : undefined}>{signedTime(designTimeMinutes(ticket.designTime))}</span>
+                  </div>
+                  <div className="mt-1.5 flex items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button disabled={working || refreshing || !editable || canceled} onClick={() => updateTicketControl(ticket, "delivery")} className="rounded-md border border-lime/30 px-2 py-0.5 text-[10px] font-bold text-lime disabled:opacity-40">{status === "Delivered" ? "Undo Delivered" : "Mark Delivered"}</button>
+                      <DesignTimeEditor ticket={ticket} day={day} disabled={working || refreshing || !editable} onBusy={setWorking} onSaved={setData} />
+                      <button aria-pressed={Boolean(ticket.noBandwidth)} disabled={working || refreshing || !editable} onClick={() => updateTicketControl(ticket, "bandwidth")} className={`rounded-md border border-red-400/40 px-2 py-0.5 text-[10px] font-bold text-red-300 disabled:opacity-40 ${ticket.noBandwidth ? "bg-red-400/20" : ""}`}>{ticket.noBandwidth ? "Restore BW" : "No BW"}</button>
+                    </div>
+                    <span title={`Fetched status: ${ticket.status}`} className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${canceled ? "bg-red-400/15 text-red-300" : tag}`}>{canceled ? "Canceled" : status}</span>
+                  </div>
+                </div>;
+              })}{!tickets.length && <p className="text-sm text-muted">No work saved for this day.</p>}</div>
+          </details></div>;
         })}</div>
       </section>
-      <section className="rounded-xl border border-blue/30 bg-panel p-5"><h2 className="text-lg font-semibold">Customer clarification <span className="text-sm text-muted">({clarifications.length})</span></h2><div className="mt-3 space-y-2">{clarifications.map((ticket) => <a key={ticket.entryId || ticket.id} href={ticket.url} target="_blank" rel="noopener noreferrer" className="block rounded-lg bg-inset p-3 text-sm"><span className="text-blue">#{ticket.id} · {ticket.title}</span><span className="ml-3 text-muted">{ticket.client} · 0:00 DT</span></a>)}{!clarifications.length && <p className="text-sm text-muted">No tickets awaiting customer clarification.</p>}</div></section>
-      <section className="rounded-xl border border-line bg-panel p-5"><h2 className="text-lg font-semibold">Clients with no assigned DT</h2><div className="mt-4 space-y-3">{clientRows.filter((row) => row.tickets.length && row.allocated === 0).map(({ client, tickets }) => <details key={client.id} className="rounded-lg border border-amber-400/30 bg-amber-400/5 p-4"><summary className="cursor-pointer text-sm"><QueueLink href={clientTicketsUrl(client.companyId || client.id)} className="font-medium">{client.name}</QueueLink><span className="ml-3 text-muted">{tickets.length} tickets · 0:00 / {signedTime(client.dailyMinutes)} · {client.pc}</span></summary><div className="mt-3 space-y-2">{tickets.map((ticket) => <a className="block text-sm text-blue" href={ticket.url} key={ticket.entryId || ticket.id} target="_blank" rel="noopener noreferrer">#{ticket.id} · {ticket.title}</a>)}</div></details>)}{!clientRows.some((row) => row.tickets.length && row.allocated === 0) && <p className="text-sm text-muted">No clients with queued tickets and zero assigned DT.</p>}</div></section>
+      <section className="rounded-xl border border-blue/30 bg-panel p-5">
+        <h2 className="text-lg font-semibold">Customer clarification <span className="text-sm text-muted">({clarifications.length})</span></h2>
+        {clarifications.length ? <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[640px] table-fixed text-left text-sm">
+          <colgroup><col className="w-28" /><col /><col className="w-[35%]" /><col className="w-20" /></colgroup>
+          <tbody>{clarifications.map((ticket) => <tr key={ticket.entryId || ticket.id} className="border-t border-panel bg-inset">
+            <td className="px-3 py-1.5 font-mono text-xs text-blue"><a href={ticket.url} target="_blank" rel="noopener noreferrer" className="hover:underline">#{ticket.id}</a></td>
+            <td className="truncate px-3 py-1.5 text-blue" title={ticket.title}><a href={ticket.url} target="_blank" rel="noopener noreferrer" className="hover:underline">{ticket.title}</a></td>
+            <td className="truncate px-3 py-1.5 text-muted" title={ticket.client}><QueueLink href={ticket.clientId ? clientTicketsUrl(ticket.clientId) : undefined}>{ticket.client}</QueueLink></td>
+            <td className="px-3 py-1.5 font-mono text-xs text-muted">0:00</td>
+          </tr>)}</tbody>
+        </table></div> : <p className="mt-3 text-sm text-muted">No tickets awaiting customer clarification.</p>}
+      </section>
+      <section className="rounded-xl border border-line bg-panel p-5">
+        <h2 className="text-lg font-semibold">Clients with no assigned DT</h2>
+        {clientRows.some((row) => row.tickets.length && row.allocated === 0) ? <div className="mt-3 overflow-x-auto"><div className="min-w-[640px]">
+          <div className="space-y-1">{clientRows.filter((row) => row.tickets.length && row.allocated === 0).map(({ client, tickets }) => <details key={client.id} className="overflow-hidden rounded-lg bg-amber-400/5">
+            <summary className="grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_35%_5rem] items-center py-1.5 text-sm">
+              <QueueLink href={clientTicketsUrl(client.companyId || client.id)} className="truncate px-3 text-muted">{client.name}</QueueLink>
+              <span className="px-3 text-muted tabular-nums">{new Set(tickets.map((ticket) => ticket.id)).size} tickets</span>
+              <span className="px-3 font-mono text-xs text-muted">{signedTime(client.dailyMinutes)}</span>
+            </summary>
+            <div className="space-y-1 px-3 pb-1.5 pt-1">{tickets.map((ticket) => <a className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3 text-sm text-blue hover:underline" href={ticket.url} key={ticket.entryId || ticket.id} target="_blank" rel="noopener noreferrer"><span className="font-mono text-xs">#{ticket.id}</span><span className="truncate" title={ticket.title}>{ticket.title}</span></a>)}</div>
+          </details>)}</div>
+        </div></div> : <p className="mt-3 text-sm text-muted">No clients with queued tickets and zero assigned DT.</p>}
+      </section>
+      <section className="overflow-hidden rounded-xl border border-line bg-panel">
+        <h2 className="p-5 text-lg font-semibold">Tickets Outside My Team</h2>
+        {outsideTickets.length ? <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm">
+          <thead className="bg-inset text-muted"><tr>{["Ticket Number", "Client name", "Creative assigned", "DT assigned", "Ticket Status"].map((label) => <th key={label} className="px-5 py-3 font-medium">{label}</th>)}</tr></thead>
+          <tbody>{outsideTickets.map((ticket) => {
+            const status = simplifiedStatus(ticket);
+            const statusColor = status === "Delivered" ? "text-lime" : status === "In Progress" ? "text-yellow-300" : "text-blue";
+            return <tr key={ticket.entryId || ticket.id} className={`border-t border-line ${status === "Delivered" ? "bg-lime/10" : status === "In Progress" ? "bg-yellow-400/10" : "bg-blue/10"}`}>
+              <td className="px-5 py-3"><a href={ticket.url} target="_blank" rel="noopener noreferrer" title={ticket.title} className="font-mono text-xs text-blue hover:underline">#{ticket.id}</a>{(ticket.occurrence ?? 1) > 1 && <span className="ml-2 text-xs text-muted">Revision {(ticket.occurrence ?? 1) - 1}</span>}</td>
+              <td className="px-5 py-3"><QueueLink href={ticket.clientId ? clientTicketsUrl(ticket.clientId) : undefined}>{ticket.client}</QueueLink></td>
+              <td className="px-5 py-3 text-muted">{ticket.assignee}</td>
+              <td className="px-5 py-3 font-mono text-xs">{signedTime(countedMinutes(ticket))}</td>
+              <td className={`px-5 py-3 ${statusColor}`}><div className="flex items-center gap-2"><select aria-label={`Status for outside-team ticket ${ticket.id}, entry ${ticket.occurrence}`} title={`Fetched status: ${ticket.status}${ticket.outsideStatus ? " · Manual override saved" : ""}`} value={status} disabled={working || refreshing} onChange={(event) => updateOutsideStatus(ticket, event.target.value as OutsideStatus)} className={`rounded-md border border-line bg-panel px-2 py-1 text-xs font-semibold ${statusColor}`}>{outsideStatuses.map((status) => <option key={status}>{status}</option>)}</select>{ticket.outsideStatus && <button type="button" title="Use fetched status again" disabled={working || refreshing} onClick={() => updateOutsideStatus(ticket, null)} className="text-[10px] font-bold text-muted hover:text-ink">Reset</button>}</div></td>
+            </tr>;
+          })}</tbody>
+        </table></div> : <p className="px-5 pb-5 text-sm text-muted">No tickets assigned outside your team.</p>}
+      </section>
       <section className="overflow-hidden rounded-xl border border-line bg-panel"><h2 className="p-5 text-lg font-semibold">Daily client allocation</h2><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-inset text-muted"><tr>{["Client", "Daily status", "Subscription", "Assigned DT", "Completed DT", "Daily DT", "Available DT"].map((title) => <th key={title} className="px-5 py-3">{title}</th>)}</tr></thead><tbody>{clientRows.map(({ client, tickets, allocated, complete }) => {
         const empty = tickets.length === 0;
         const maximized = !empty && client.dailyMinutes > 0 && allocated >= client.dailyMinutes;

@@ -9,7 +9,7 @@ function load(file, dependencies = {}) {
 }
 const daily = load("src/lib/daily.ts");
 const status = load("src/lib/ticket-status.ts", { "@/lib/design-time": load("src/lib/design-time.ts") });
-const progress = load("src/lib/creative-progress.ts", { "@/lib/ticket-status": status, "@/lib/creative-work": load("src/lib/creative-work.ts", { "@/lib/daily": daily }) });
+const progress = load("src/lib/creative-progress.ts", { "@/lib/availability": load("src/lib/availability.ts"), "@/lib/ticket-status": status, "@/lib/creative-work": load("src/lib/creative-work.ts", { "@/lib/daily": daily }) });
 async function main() {
   const base = process.env.DP_CHECK_URL || "http://127.0.0.1:3100";
   const denied = await fetch(base + "/api/refresh", { method: "POST", headers: { Origin: "https://example.com" } });

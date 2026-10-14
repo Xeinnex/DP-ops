@@ -44,9 +44,9 @@ export function applyObservation(entries: WorkEntry[], ticket: Ticket): WorkEntr
   if (next === "canceled") reviewFlag = "Canceled — excluded from DT";
   const entry: WorkEntry = {
     ...ticket,
-    designTime: base?.dtLocked && (next !== "in_progress" || base.dtFrozen) ? base.designTime : next === "in_progress" && ticket.designTime === null && base ? base.designTime : ticket.designTime,
-    dtLocked: Boolean(base?.dtLocked) || next === "in_progress",
-    dtFrozen: Boolean(base?.dtFrozen) || Boolean(base?.dtLocked && next !== "in_progress"),
+    designTime: base?.dtLocked && (next !== "in_progress" || base.dtFrozen) ? base.designTime : (next === "in_progress" || completion === 1) && ticket.designTime === null && base ? base.designTime : ticket.designTime,
+    dtLocked: Boolean(base?.dtLocked) || next === "in_progress" || completion === 1,
+    dtFrozen: Boolean(base?.dtFrozen) || Boolean(base?.dtLocked && next !== "in_progress") || completion === 1,
     entryId: `${ticket.id}:${occurrence}`,
     occurrence,
     completion,
@@ -67,6 +67,7 @@ export function applyObservation(entries: WorkEntry[], ticket: Ticket): WorkEntr
 }
 
 export function countedMinutes(ticket: Ticket) {
+  if (ticket.noBandwidth) return 0;
   return ["canceled", "customer_clarification", "draft", "inactive"].includes(statusKey(ticket.status)) ? 0 : designTimeMinutes(ticket.designTime);
 }
 

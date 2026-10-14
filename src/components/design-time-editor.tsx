@@ -18,11 +18,11 @@ export function DesignTimeEditor({ ticket, day, disabled, onBusy, onSaved }: { t
     } catch (error) { setError(error instanceof Error ? error.message : "Unable to update DT."); }
     finally { onBusy(false); }
   }
-  if (!editing) return <button disabled={disabled} onClick={() => { setValue(ticket.designTime || ""); setError(""); setEditing(true); }} className="rounded-md border border-blue/40 px-2 py-1 text-xs text-blue disabled:opacity-40">Edit DT</button>;
+  if (!editing) return <button disabled={disabled} onClick={() => { setValue(ticket.designTime || ""); setError(""); setEditing(true); }} className="rounded-md border border-blue/40 px-2 py-0.5 text-[10px] font-bold text-blue disabled:opacity-40">Edit DT</button>;
   return <form onSubmit={save} className="flex flex-wrap items-center gap-2">
     <label className="text-xs text-muted">DT <input aria-label={`Design time for ticket ${ticket.id}, entry ${ticket.occurrence}`} required pattern="[0-9]{1,4}:[0-5][0-9]" placeholder="0:00" value={value} onChange={(event) => setValue(event.target.value)} disabled={disabled} className="w-20 rounded-md border border-line bg-panel px-2 py-1 font-mono text-ink" /></label>
-    <button disabled={disabled} className="rounded-md border border-blue/40 px-2 py-1 text-xs text-blue disabled:opacity-40">Save DT</button>
-    <button type="button" disabled={disabled} onClick={() => setEditing(false)} className="text-xs text-muted">Cancel</button>
+    <button disabled={disabled} className="rounded-md border border-blue/40 px-2 py-0.5 text-[10px] font-bold text-blue disabled:opacity-40">Save DT</button>
+    <button type="button" disabled={disabled} onClick={() => setEditing(false)} className="px-2 py-0.5 text-[10px] font-bold text-muted">Cancel</button>
     {error && <span role="alert" className="text-xs text-red-300">{error}</span>}
   </form>;
 }

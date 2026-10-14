@@ -24,6 +24,9 @@ export interface Ticket {
   dtLocked?: boolean;
   dtFrozen?: boolean;
   manualDesignTime?: boolean;
+  outsideStatus?: "Assigned" | "In Progress" | "Delivered";
+  deliveryOverride?: boolean;
+  noBandwidth?: boolean;
 }
 
 export interface TicketResult {

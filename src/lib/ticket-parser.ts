@@ -56,5 +56,5 @@ export function parseTicketPage(html: string, source: "clients" | "creatives") {
   });
   if (!tickets.length && body.find('a[href*="/admin/tickets/"]').length) throw new Error("Ticket rows could not be parsed. The website layout changed.");
   const nextLink = $('a[rel="next"], .pagination .next:not(.disabled) a, .pagination a').filter((_, link) => $(link).attr("rel") === "next" || /^(next|next\s*[›»→]|[›»→])$/i.test(text($(link).text()))).first().attr("href");
-  return { tickets, nextLink, rowCount: body.find("tr").filter((_, row) => $(row).children("td").length > 0).length };
+  return { tickets, nextLink, hasPagination: $(".pagination").length > 0, rowCount: body.find("tr").filter((_, row) => $(row).children("td").length > 0).length };
 }

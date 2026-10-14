@@ -73,6 +73,8 @@ export async function scrapeTickets(options?: { source: "clients" | "creatives";
       const parsed = parseTicketPage(await response.text(), queue.source);
       pagesFetched++;
       if (!parsed.tickets.length && parsed.rowCount > 1) throw new Error("Rows were found but no ticket IDs could be read. Check the website layout.");
+      // Out-of-range pages can be empty while still advertising a bogus next page.
+      if (!parsed.tickets.length) break;
       const signature = parsed.tickets.map((ticket) => ticket.id).join(",");
       if (signature && seen.has(signature)) throw new Error("The website repeated a page. Fetch stopped to avoid reporting an incomplete queue.");
       seen.add(signature);
@@ -85,10 +87,10 @@ export async function scrapeTickets(options?: { source: "clients" | "creatives";
         const next = validateQueue(new URL(parsed.nextLink, url).toString());
         // Preserve configured queue filters when the pagination link contains only a page number.
         const nextPage = next.searchParams.get("page");
-        if (!nextPage || !/^\d+$/.test(nextPage)) throw new Error("Unrecognized pagination link. Queue fetch stopped.");
+        if (!nextPage || !/^\d+$/.test(nextPage) || Number(nextPage) <= Number(url.searchParams.get("page") || "1")) throw new Error("Unrecognized or non-advancing pagination link. Queue fetch stopped.");
         url = new URL(queue.url);
         url.searchParams.set("page", nextPage);
-      } else if (parsed.rowCount >= 25) {
+      } else if (!parsed.hasPagination && parsed.rowCount >= 25) {
         url = new URL(queue.url);
         url.searchParams.set("page", String(page + 1));
       } else break;
