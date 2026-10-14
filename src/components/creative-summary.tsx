@@ -21,7 +21,7 @@ export function CreativeSummary({ alias, availability, children }: { alias: stri
     return () => observer.disconnect();
   }, []);
 
-  return <div className="@container"><div className="flex items-center gap-4 @max-[360px]:flex-col">
+  return <div className="@container"><div className="flex items-center gap-2 [--creative-avatar-max:64px] @min-[360px]:gap-4 @min-[360px]:[--creative-avatar-max:96px]">
     <CreativeAvatar alias={alias} availability={availability} size={height} />
     <div ref={content} className="min-w-0 w-full flex-1">{children}</div>
   </div></div>;

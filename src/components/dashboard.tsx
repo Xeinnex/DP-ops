@@ -8,6 +8,7 @@ import { creativeWork } from "@/lib/creative-work";
 import { countedMinutes, completedMinutes, scopeRank, statusKey } from "@/lib/ticket-status";
 import { ManualTicketForm } from "@/components/manual-ticket-form";
 import { DesignTimeEditor } from "@/components/design-time-editor";
+import { ScopeBadges } from "@/components/scope-badges";
 import { CreativeSummary } from "@/components/creative-summary";
 import { QueueLink } from "@/components/queue-link";
 import { clientTicketsUrl, creativeTicketsUrl } from "@/lib/queue-links";
@@ -86,6 +87,7 @@ export function Dashboard() {
     const tickets = data.tickets.filter((ticket) => ticket.clientId ? ticket.clientId === client.id || ticket.clientId === client.companyId : normalizeName(ticket.client) === normalizeName(client.name));
     return { client, tickets, allocated: sum(tickets.filter(assigned)), complete: completed(tickets.filter(assigned)) };
   }).sort((a, b) => Number(b.tickets.length > 0) - Number(a.tickets.length > 0) || a.client.name.localeCompare(b.client.name)) ?? [];
+  const unallocatedRows = clientRows.map((row) => ({ ...row, tickets: row.tickets.filter((ticket) => !["customer_clarification", "canceled", "draft", "inactive"].includes(statusKey(ticket.status))) })).filter((row) => row.tickets.length > 0 && row.allocated === 0);
   const clarifications = data?.tickets.filter((ticket) => statusKey(ticket.status) === "customer_clarification") ?? [];
   const outsideTickets = data?.tickets.filter((ticket) => outsideTeam(ticket, data.creatives) && !["canceled", "customer_clarification", "draft", "inactive"].includes(statusKey(ticket.status))).sort((a, b) => a.client.localeCompare(b.client, undefined, { sensitivity: "base" })) ?? [];
   const lastFetch = data?.fetched.filter((run) => run.source === "clients" || run.scope === "347").map((run) => run.fetchedAt).sort().at(-1);
@@ -116,12 +118,12 @@ export function Dashboard() {
           const previous = data.previousProgress?.find((progress) => progress.creativeId === creative.id);
           const changed = previous && (previous.assignedMinutes !== used || previous.completedMinutes !== done || previous.capacityMinutes !== capacity);
           return <div key={creative.id} className="relative self-start"><details className={`overflow-hidden rounded-xl border ${awayWithTickets ? "border-red-500/70 bg-red-500/25" : overloaded ? "border-red-400/30 bg-red-400/5" : allDone ? "border-lime/30 bg-lime/5" : "border-line bg-panel"}`}>
-            <summary className="cursor-pointer list-none px-5 py-4">
+            <summary className="cursor-pointer list-none px-3 py-3 sm:px-5">
               <CreativeSummary alias={creative.alias} availability={availability.value}>
-                <div className="flex flex-wrap justify-between gap-3"><div><h3 className={`font-semibold ${availability.value === "away" ? "text-red-500" : availability.value === "half_day" ? "text-yellow-400" : "text-lime"}`}><QueueLink href={creativeTicketsUrl(creative.designerId)}>{creative.alias}</QueueLink>{availability.value !== "available" && <span className={`ml-2 text-[10px] font-medium ${availability.value === "away" ? "text-red-300" : "text-yellow-300"}`}>{availability.value === "half_day" ? "Half day" : "Away"}</span>}</h3><p className="mt-1 text-xs text-muted">{creative.scopes.join(" + ") || "No scopes"} · {tickets.length} tickets</p></div><div className="text-right"><p className={available < 0 ? "text-red-300" : "text-ink"}>{signedTime(available)} left</p><p className="mt-1 text-xs text-muted">{capacity === 0 ? "Away · 0:00 capacity" : `${percent}% assigned · ${donePercent}% complete`}</p></div></div>
+                <div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className={`text-sm font-semibold sm:text-base ${availability.value === "away" ? "text-red-500" : availability.value === "half_day" ? "text-yellow-400" : "text-lime"}`}><QueueLink href={creativeTicketsUrl(creative.designerId)}>{creative.alias}</QueueLink>{availability.value !== "available" && <span className={`ml-1 text-[9px] font-medium ${availability.value === "away" ? "text-red-300" : "text-yellow-300"}`}>{availability.value === "half_day" ? "Half day" : "Away"}</span>}</h3><div className="mt-1 flex flex-wrap items-center gap-2"><ScopeBadges scopes={creative.scopes} /><span className="text-[10px] text-muted">{tickets.length} tickets</span></div></div><p className={`shrink-0 text-right text-xs sm:text-sm ${available < 0 ? "text-red-300" : "text-ink"}`}>{signedTime(available)} left</p></div>
                 <div aria-hidden={!changed} className={`relative mt-2 h-1 overflow-hidden rounded-full bg-inset ${changed ? "visible" : "invisible"}`} aria-label={`${creative.alias} previous refresh`} title={previous ? `Previous refresh: ${signedTime(previous.assignedMinutes)} assigned · ${signedTime(previous.completedMinutes)} completed` : undefined}><div className="absolute inset-y-0 left-0 bg-blue/50" style={{ width: `${previous ? Math.min(capacityPercent(previous.assignedMinutes, previous.capacityMinutes), 100) : 0}%` }} /><div className="absolute inset-y-0 left-0 bg-lime/50" style={{ width: `${previous ? Math.min(capacityPercent(previous.completedMinutes, previous.capacityMinutes), 100) : 0}%` }} /></div>
                 <div role="progressbar" aria-label={`${creative.alias} completion`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(donePercent, 100)} aria-valuetext={`${signedTime(done)} completed of ${signedTime(capacity)} capacity; ${signedTime(used)} assigned`} className="relative mt-1 h-3 overflow-hidden rounded-full bg-inset"><div className="absolute inset-y-0 left-0 bg-blue" style={{ width: `${Math.min(percent, 100)}%` }} /><div className="absolute inset-y-0 left-0 bg-lime" style={{ width: `${Math.min(donePercent, 100)}%` }} /></div>
-                <div className="mt-2 flex justify-between gap-2 text-xs text-muted"><span>{signedTime(used)} assigned · <span className="text-lime">{signedTime(done)} completed</span></span><span>Queue ↓</span></div>
+                <div className="mt-1.5 flex justify-between gap-2 text-[10px] text-muted sm:text-xs"><span>{signedTime(used)} assigned</span><span>Queue ↓</span></div>
               </CreativeSummary>
             </summary>
             <div className="space-y-1.5 border-t border-line p-4">
@@ -154,24 +156,23 @@ export function Dashboard() {
       </section>
       <section className="rounded-xl border border-blue/30 bg-panel p-5">
         <h2 className="text-lg font-semibold">Customer clarification <span className="text-sm text-muted">({clarifications.length})</span></h2>
-        {clarifications.length ? <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[640px] table-fixed text-left text-sm">
-          <colgroup><col className="w-28" /><col /><col className="w-[35%]" /><col className="w-20" /></colgroup>
+        {clarifications.length ? <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[420px] table-fixed text-left text-xs sm:text-sm">
+          <colgroup><col className="w-[35%]" /><col className="w-24" /><col /></colgroup>
           <tbody>{clarifications.map((ticket) => <tr key={ticket.entryId || ticket.id} className="border-t border-panel bg-inset">
+            <td className="truncate px-3 py-1.5 text-muted" title={ticket.client}><QueueLink href={ticket.clientId ? clientTicketsUrl(ticket.clientId) : undefined}>{ticket.client}</QueueLink></td>
             <td className="px-3 py-1.5 font-mono text-xs text-blue"><a href={ticket.url} target="_blank" rel="noopener noreferrer" className="hover:underline">#{ticket.id}</a></td>
             <td className="truncate px-3 py-1.5 text-blue" title={ticket.title}><a href={ticket.url} target="_blank" rel="noopener noreferrer" className="hover:underline">{ticket.title}</a></td>
-            <td className="truncate px-3 py-1.5 text-muted" title={ticket.client}><QueueLink href={ticket.clientId ? clientTicketsUrl(ticket.clientId) : undefined}>{ticket.client}</QueueLink></td>
-            <td className="px-3 py-1.5 font-mono text-xs text-muted">0:00</td>
           </tr>)}</tbody>
         </table></div> : <p className="mt-3 text-sm text-muted">No tickets awaiting customer clarification.</p>}
       </section>
       <section className="rounded-xl border border-line bg-panel p-5">
         <h2 className="text-lg font-semibold">Clients with no assigned DT</h2>
-        {clientRows.some((row) => row.tickets.length && row.allocated === 0) ? <div className="mt-3 overflow-x-auto"><div className="min-w-[640px]">
-          <div className="space-y-1">{clientRows.filter((row) => row.tickets.length && row.allocated === 0).map(({ client, tickets }) => <details key={client.id} className="overflow-hidden rounded-lg bg-amber-400/5">
-            <summary className="grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_35%_5rem] items-center py-1.5 text-sm">
+        {unallocatedRows.length > 0 ? <div className="mt-3 overflow-x-auto"><div className="min-w-[420px]">
+          <div className="space-y-1">{unallocatedRows.map(({ client, tickets }) => <details key={client.id} className="overflow-hidden rounded-lg bg-amber-400/5">
+            <summary className="grid cursor-pointer list-none grid-cols-[35%_6rem_minmax(0,1fr)] items-center py-1.5 text-xs sm:text-sm">
               <QueueLink href={clientTicketsUrl(client.companyId || client.id)} className="truncate px-3 text-muted">{client.name}</QueueLink>
               <span className="px-3 text-muted tabular-nums">{new Set(tickets.map((ticket) => ticket.id)).size} tickets</span>
-              <span className="px-3 font-mono text-xs text-muted">{signedTime(client.dailyMinutes)}</span>
+              <span className="px-3 text-right font-mono text-xs text-muted">{signedTime(client.dailyMinutes)}</span>
             </summary>
             <div className="space-y-1 px-3 pb-1.5 pt-1">{tickets.map((ticket) => <a className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3 text-sm text-blue hover:underline" href={ticket.url} key={ticket.entryId || ticket.id} target="_blank" rel="noopener noreferrer"><span className="font-mono text-xs">#{ticket.id}</span><span className="truncate" title={ticket.title}>{ticket.title}</span></a>)}</div>
           </details>)}</div>
@@ -183,8 +184,8 @@ export function Dashboard() {
           <thead className="bg-inset text-muted"><tr>{["Ticket Number", "Client name", "Creative assigned", "DT assigned", "Ticket Status"].map((label) => <th key={label} className="px-5 py-3 font-medium">{label}</th>)}</tr></thead>
           <tbody>{outsideTickets.map((ticket) => {
             const status = simplifiedStatus(ticket);
-            const statusColor = status === "Delivered" ? "text-lime" : status === "In Progress" ? "text-yellow-300" : "text-blue";
-            return <tr key={ticket.entryId || ticket.id} className={`border-t border-line ${status === "Delivered" ? "bg-lime/10" : status === "In Progress" ? "bg-yellow-400/10" : "bg-blue/10"}`}>
+            const statusColor = status === "Delivered" ? "text-lime" : status === "In Progress" ? "text-fuchsia-300" : "text-blue";
+            return <tr key={ticket.entryId || ticket.id} className={`border-t border-line ${status === "Delivered" ? "bg-lime/10" : status === "In Progress" ? "bg-fuchsia-400/10" : ""}`}>
               <td className="px-5 py-3"><a href={ticket.url} target="_blank" rel="noopener noreferrer" title={ticket.title} className="font-mono text-xs text-blue hover:underline">#{ticket.id}</a>{(ticket.occurrence ?? 1) > 1 && <span className="ml-2 text-xs text-muted">Revision {(ticket.occurrence ?? 1) - 1}</span>}</td>
               <td className="px-5 py-3"><QueueLink href={ticket.clientId ? clientTicketsUrl(ticket.clientId) : undefined}>{ticket.client}</QueueLink></td>
               <td className="px-5 py-3 text-muted">{ticket.assignee}</td>
