@@ -171,7 +171,7 @@ export function Dashboard() {
         <h2 className="text-lg font-semibold">Customer clarification <span className="text-sm text-muted">({clarifications.length})</span></h2>
         {clarifications.length ? <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[420px] table-fixed text-left text-xs sm:text-sm">
           <colgroup><col className="w-[35%]" /><col className="w-24" /><col /></colgroup>
-          <tbody>{clarifications.map((ticket) => <tr key={ticket.entryId || ticket.id} className="border-t border-panel bg-inset">
+          <tbody>{clarifications.map((ticket) => <tr key={ticket.entryId || ticket.id} className="border-t border-line">
             <td className="truncate px-3 py-1.5 text-muted" title={ticket.client}><QueueLink href={ticket.clientId ? clientTicketsUrl(ticket.clientId) : undefined}>{ticket.client}</QueueLink></td>
             <td className="px-3 py-1.5 font-mono text-xs text-blue"><a href={ticket.url} target="_blank" rel="noopener noreferrer" className="hover:underline">#{ticket.id}</a></td>
             <td className="truncate px-3 py-1.5 text-blue" title={ticket.title}><a href={ticket.url} target="_blank" rel="noopener noreferrer" className="hover:underline">{ticket.title}</a></td>
@@ -181,7 +181,7 @@ export function Dashboard() {
       <section className="rounded-xl border border-line bg-panel p-5">
         <h2 className="text-lg font-semibold">Clients with no assigned DT</h2>
         {unallocatedRows.length > 0 ? <div className="mt-3 overflow-x-auto"><div className="min-w-[420px]">
-          <div className="space-y-1">{unallocatedRows.map(({ client, tickets }) => <details key={client.id} className="overflow-hidden rounded-lg bg-amber-400/5">
+          <div>{unallocatedRows.map(({ client, tickets }) => <details key={client.id} className="overflow-hidden border-t border-line">
             <summary className="grid cursor-pointer list-none grid-cols-[35%_6rem_minmax(0,1fr)] items-center py-1.5 text-xs sm:text-sm">
               <QueueLink href={clientTicketsUrl(client.companyId || client.id)} className="truncate px-3 text-muted">{client.name}</QueueLink>
               <span className="px-3 text-muted tabular-nums">{new Set(tickets.map((ticket) => ticket.id)).size} tickets</span>
