@@ -13,7 +13,7 @@ import { outsideTeam, outsideStatuses, type OutsideStatus } from "@/lib/outside-
 
 let connection: Database.Database | undefined;
 const databaseCache = globalThis as typeof globalThis & { dpDatabase?: Database.Database; dpDatabaseSchema?: number };
-const databaseSchema = 3;
+const databaseSchema = 4;
 
 export function db() {
   if (connection?.open && databaseCache.dpDatabaseSchema === databaseSchema) return connection;
@@ -39,6 +39,7 @@ export function db() {
     CREATE TABLE IF NOT EXISTS daily_availability (day TEXT NOT NULL,creativeId TEXT NOT NULL,availability TEXT NOT NULL,PRIMARY KEY(day,creativeId));
     CREATE TABLE IF NOT EXISTS outside_statuses (day TEXT NOT NULL,entryId TEXT NOT NULL,assignee TEXT NOT NULL,status TEXT NOT NULL,PRIMARY KEY(day,entryId,assignee));
     CREATE TABLE IF NOT EXISTS ticket_controls (day TEXT NOT NULL,entryId TEXT NOT NULL,assignee TEXT NOT NULL,delivered INTEGER,noBandwidth INTEGER NOT NULL DEFAULT 0,designTime TEXT,PRIMARY KEY(day,entryId,assignee));
+    CREATE TABLE IF NOT EXISTS hidden_creative_entries (day TEXT NOT NULL,entryId TEXT NOT NULL,assignee TEXT NOT NULL,PRIMARY KEY(day,entryId,assignee));
   `);
   const clientColumns = connection.prepare("PRAGMA table_info(clients)").all() as { name: string }[];
   if (!clientColumns.some((column) => column.name === "companyId")) connection.exec("ALTER TABLE clients ADD COLUMN companyId TEXT");
@@ -90,7 +91,7 @@ export function savedTickets(source: string, scope: string, day = today()): Tick
   return { tickets: [...tickets, ...manual.filter((entry) => !tickets.some((ticket) => ticket.entryId === entry.entryId))], fetchedAt: run.fetchedAt, pagesFetched: run.pages, warnings: JSON.parse(run.payload).warnings };
 }
 
-function dailyTickets(day: string, teamId = "347") {
+function dailyTickets(day: string, teamId = "347", references?: Ticket[]) {
   // Replay immutable observations, including pre-upgrade history; revisions get separate daily entry IDs.
   const runs = db().prepare("SELECT payload,fetchedAt,id FROM fetch_runs WHERE day=? AND (source IN ('clients','manual') OR scope=?) ORDER BY id").all(day, teamId) as { payload: string; fetchedAt: string; id: number }[];
   const observations = runs.flatMap((run) => (JSON.parse(run.payload) as TicketResult).tickets.map((ticket) => ({ ticket, at: run.fetchedAt, order: run.id })));
@@ -99,6 +100,7 @@ function dailyTickets(day: string, teamId = "347") {
   for (const detail of details) { const ticket: Ticket = JSON.parse(detail.payload); if (eligible.has(ticket.id)) observations.push({ ticket, at: detail.fetchedAt, order: 1000000000 + detail.id }); }
   observations.sort((a, b) => a.at.localeCompare(b.at) || a.order - b.order);
   const entries = new Map<string, WorkEntry[]>();
+  const assignments = new Map<string, WorkEntry>();
   const overrides = new Map((db().prepare("SELECT entryId,completedAt FROM manual_completions WHERE day=?").all(day) as { entryId: string; completedAt: string }[]).map((row) => [row.entryId, row.completedAt]));
   const edits = db().prepare("SELECT entryId,designTime,editedAt FROM design_time_edits WHERE day=? ORDER BY id").all(day) as { entryId: string; designTime: string; editedAt: string }[];
   const applyManual = (entry: WorkEntry, at?: string): WorkEntry => {
@@ -106,19 +108,25 @@ function dailyTickets(day: string, teamId = "347") {
     const corrected = edit ? { ...entry, designTime: edit.designTime, manualDesignTime: true } : entry;
     return overrides.has(entry.entryId) && (!at || overrides.get(entry.entryId)! <= at) ? { ...corrected, completion: ["canceled", "customer_clarification", "draft", "inactive"].includes(statusKey(entry.status)) ? 0 : 1, manualCompletion: true, dtLocked: true, dtFrozen: true, lockedWip: statusKey(entry.status) === "incomplete" || entry.lockedWip } : corrected;
   };
-  for (const { ticket, at } of observations) entries.set(ticket.id, applyObservation((entries.get(ticket.id) ?? []).map((entry) => applyManual(entry, at)), ticket));
+  for (const { ticket, at } of observations) {
+    const next = applyObservation((entries.get(ticket.id) ?? []).map((entry) => applyManual(entry, at)), ticket);
+    entries.set(ticket.id, next);
+    for (const entry of next) if (entry.assignee && !/^(not assigned|unassigned|none)$/i.test(entry.assignee)) assignments.set(`${entry.entryId}\0${entry.assignee}`, entry);
+  }
   const active = new Set((db().prepare("SELECT DISTINCT ticketId FROM queue_snapshots WHERE day=? AND active=1 AND (source='clients' OR scope=?)").all(day, teamId) as { ticketId: string }[]).map((row) => row.ticketId));
   const manualIds = new Set(observations.filter(({ ticket }) => ticket.manuallyAdded).map(({ ticket }) => ticket.id));
   const outsideOverrides = db().prepare("SELECT entryId,assignee,status FROM outside_statuses WHERE day=?").all(day) as { entryId: string; assignee: string; status: OutsideStatus }[];
   const creatives = registry().creatives;
   const controls = db().prepare("SELECT entryId,assignee,delivered,noBandwidth,designTime FROM ticket_controls WHERE day=?").all(day) as { entryId: string; assignee: string; delivered: number | null; noBandwidth: number; designTime: string | null }[];
-  return [...entries.values()].flat().map((entry) => applyManual(entry)).filter((ticket) => !ticket.excluded).map((ticket) => {
+  const decorate = (ticket: WorkEntry) => {
     const override = outsideTeam(ticket, creatives) ? outsideOverrides.find((row) => row.entryId === ticket.entryId && row.assignee === ticket.assignee) : undefined;
     const applies = override && !["canceled", "customer_clarification"].includes(statusKey(ticket.status));
     const control = controls.find((row) => row.entryId === ticket.entryId && row.assignee === ticket.assignee);
     const delivery = control && control.delivered !== null && !["canceled", "customer_clarification"].includes(statusKey(ticket.status));
     return { ...ticket, ...(applies ? { outsideStatus: override.status, completion: override.status === "Delivered" ? 1 : override.status === "In Progress" ? 0.5 : 0 } : {}), ...(delivery ? { deliveryOverride: Boolean(control.delivered), completion: control.delivered ? 1 : 0, dtLocked: true, dtFrozen: true, designTime: ticket.manualDesignTime ? ticket.designTime : control.designTime ?? ticket.designTime } : {}), noBandwidth: Boolean(control?.noBandwidth), manuallyAdded: manualIds.has(ticket.id), retained: !active.has(ticket.id) };
-  });
+  };
+  if (references) references.push(...[...assignments.values()].map((entry) => decorate(applyManual(entry))));
+  return [...entries.values()].flat().map((entry) => applyManual(entry)).filter((ticket) => !ticket.excluded).map(decorate);
 }
 
 export function setTicketControl(day: string, entryId: string, action: "delivery" | "bandwidth", enabled: boolean) {
@@ -149,12 +157,27 @@ export function addManualTicket(ticket: Ticket) {
 
 export function dailyData(day = today()): DailyData {
   const fetched = db().prepare("SELECT source,scope,MAX(fetchedAt) AS fetchedAt FROM fetch_runs WHERE day=? GROUP BY source,scope").all(day) as DailyData["fetched"];
-  const workedTickets = (db().prepare("SELECT payload FROM worked_tickets WHERE day=?").all(day) as { payload: string }[]).map((row) => ({ ...JSON.parse(row.payload), worked: true }));
+  const legacyWorked = (db().prepare("SELECT payload FROM worked_tickets WHERE day=?").all(day) as { payload: string }[]).map((row) => ({ ...JSON.parse(row.payload), worked: true } as Ticket));
+  const references: Ticket[] = [];
+  const tickets = dailyTickets(day, "347", references);
+  const hidden = db().prepare("SELECT entryId,assignee FROM hidden_creative_entries WHERE day=?").all(day) as { entryId: string; assignee: string }[];
+  const isHidden = (ticket: Ticket) => hidden.some((row) => row.entryId === ticket.entryId && row.assignee === ticket.assignee);
+  const workedTickets = [...new Map([...legacyWorked, ...references].map((ticket) => [`${ticket.entryId || `${ticket.id}:1`}\0${ticket.assignee}`, ticket])).values()].map((ticket) => {
+    const current = tickets.find((entry) => entry.entryId === ticket.entryId);
+    return { ...ticket, referenceOnly: !current || current.assignee !== ticket.assignee || ["customer_clarification", "draft", "inactive", "canceled"].includes(statusKey(current.status)), currentAssignee: current?.assignee || "Not assigned", hiddenFromCreative: isHidden(ticket) };
+  });
   const previousProgress = (db().prepare("SELECT payload FROM previous_progress WHERE day=?").all(day) as { payload: string }[]).map((row) => JSON.parse(row.payload));
   const records = registry();
   const availability = new Map((db().prepare("SELECT creativeId,availability FROM daily_availability WHERE day=?").all(day) as { creativeId: string; availability: CreativeAvailability }[]).map((row) => [row.creativeId, row.availability]));
   const creatives = records.creatives.map((creative) => ({ ...creative, availability: day === today() ? creative.availability : availability.get(creative.id) || "available" as CreativeAvailability }));
-  return { ...records, creatives, day, tickets: dailyTickets(day), workedTickets, fetched, previousProgress };
+  return { ...records, creatives, day, tickets: tickets.map((ticket) => ({ ...ticket, hiddenFromCreative: isHidden(ticket) })), workedTickets, fetched, previousProgress };
+}
+
+export function hideCreativeEntry(day: string, entryId: string, assignee: string) {
+  const data = dailyData(day);
+  const ticket = [...data.tickets, ...data.workedTickets].find((ticket) => ticket.entryId === entryId && ticket.assignee === assignee);
+  if (!ticket || !data.creatives.some((creative) => creative.name === assignee)) throw new Error("Creative work entry not found for that day.");
+  db().prepare("INSERT OR IGNORE INTO hidden_creative_entries VALUES (?,?,?)").run(day, entryId, assignee);
 }
 
 export function setCreativeAvailability(creativeId: string, availability: CreativeAvailability) {

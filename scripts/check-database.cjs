@@ -90,7 +90,8 @@ try {
   assert.equal(work.creativeWork(reassigned.tickets, reassigned.workedTickets, ticket.assignee)[0].designTime, "2:00");
   assert.equal(work.creativeWork(reassigned.tickets, reassigned.workedTickets, "Diana Carolina Rodriguez Nino")[0].designTime, "2:00");
   database.markWorked("2026-10-13", "1", ticket.assignee, false);
-  assert.equal(database.dailyData("2026-10-13").workedTickets.length, 0);
+  assert.equal(database.db().prepare("SELECT COUNT(*) AS count FROM worked_tickets WHERE day=?").get("2026-10-13").count, 0);
+  assert.equal(work.creativeWork(database.dailyData("2026-10-13").tickets, database.dailyData("2026-10-13").workedTickets, ticket.assignee)[0].referenceOnly, true);
   database.saveFetch({ ...result, tickets: [{ ...ticket, status: "Incomplete (WIP)" }] }, "clients", "clients", "2026-10-14");
   assert.equal(database.dailyData("2026-10-14").tickets[0].completion, 0);
   database.setManualCompletion("2026-10-14", "1:1", true);
@@ -192,8 +193,32 @@ try {
   controlDb.setTicketControl(controlDay, "1:1", "bandwidth", false);
   assert.equal(status.completedMinutes(controlDb.dailyData(controlDay).tickets[0]), 60);
   controlDb.setTicketControl(controlDay, "1:1", "bandwidth", true);
+  const refDay = "2026-10-25";
+  const firstOwner = ticket.assignee;
+  const secondOwner = "Diana Carolina Rodriguez Nino";
+  controlDb.saveFetch({ ...result, tickets: [{ ...ticket, status: "Assigned" }], fetchedAt: "2026-10-25T10:00:00Z" }, "clients", "clients", refDay);
+  controlDb.saveFetch({ ...result, tickets: [{ ...ticket, status: "Assigned", assignee: secondOwner }], fetchedAt: "2026-10-25T11:00:00Z" }, "clients", "clients", refDay);
+  let referenceData = controlDb.dailyData(refDay);
+  let previousQueue = creativeWork.creativeWork(referenceData.tickets, referenceData.workedTickets, firstOwner);
+  assert.equal(previousQueue.length, 1, "Old assignee retains a reference without Mark Worked");
+  assert.equal(previousQueue[0].referenceOnly, true);
+  assert.equal(status.countedMinutes(previousQueue[0]), 0);
+  assert.equal(creativeWork.creativeWork(referenceData.tickets, referenceData.workedTickets, secondOwner).length, 1);
+  controlDb.saveFetch({ ...result, tickets: [{ ...ticket, assignee: secondOwner, status: "Customer Clarification", designTime: null }], fetchedAt: "2026-10-25T12:00:00Z" }, "clients", "clients", refDay);
+  referenceData = controlDb.dailyData(refDay);
+  const clarificationQueue = creativeWork.creativeWork(referenceData.tickets, referenceData.workedTickets, secondOwner);
+  assert.equal(clarificationQueue.length, 1);
+  assert.equal(clarificationQueue[0].referenceOnly, true);
+  assert.equal(status.countedMinutes(clarificationQueue[0]), 0);
+  controlDb.hideCreativeEntry(refDay, "1:1", firstOwner);
+  referenceData = controlDb.dailyData(refDay);
+  assert.equal(creativeWork.creativeWork(referenceData.tickets, referenceData.workedTickets, firstOwner).length, 0);
+  assert.equal(referenceData.tickets.length, 1, "Deleting a creative card preserves client/raw data");
+  controlDb.capturePreviousProgress(refDay);
+  assert.equal(controlDb.dailyData(refDay).previousProgress.find((row) => row.creativeId === "diana").assignedMinutes, 0);
   controlDb.db().close();
   const reopened = load("src/lib/database.ts", dependencies, databaseGlobals);
+  assert.equal(creativeWork.creativeWork(reopened.dailyData(refDay).tickets, reopened.dailyData(refDay).workedTickets, firstOwner).length, 0, "Creative deletion persists after reopening");
   assert.equal(reopened.dailyData(controlDay).tickets[0].noBandwidth, true);
   assert.equal(reopened.dailyData(controlDay).tickets[0].deliveryOverride, true);
   assert.equal(reopened.dailyData(outsideDay).tickets[0].outsideStatus, "Delivered");
@@ -215,4 +240,4 @@ try {
   fs.rmSync(directory, { recursive: true, force: true });
 }
 }
-main().catch((error) => { console.error(error.message); process.exitCode = 1; });
+main().catch((error) => { console.error(error); process.exitCode = 1; });

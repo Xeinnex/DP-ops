@@ -8,6 +8,7 @@ import type { TicketResult } from "@/types/ticket";
 import { groupTicketsByClient, formatDesignTime } from "@/lib/design-time";
 import { countedMinutes } from "@/lib/ticket-status";
 import type { Ticket } from "@/types/ticket";
+import { PageHeading } from "@/components/page-heading";
 import { QueueLink } from "@/components/queue-link";
 import { clientTicketsUrl, creativeTicketsUrl } from "@/lib/queue-links";
 
@@ -23,11 +24,14 @@ export function TicketsView({ source = "clients" }: { source?: "clients" | "crea
   const [client, setClient] = useState("");
   const [creative, setCreative] = useState("");
   const [status, setStatus] = useState("");
+  const [showPc, setShowPc] = useState(true);
+  const [showNoPc, setShowNoPc] = useState(true);
   const [search, setSearch] = useState("");
   const [records, setRecords] = useState<Registry>({ clients: [], creatives: [] });
   const creativeAlias = (name: string) => records.creatives.find((creative) => normalizeName(creative.name) === normalizeName(name))?.alias ?? name;
   const otherTeam = (name: string) => Boolean(name) && !/^(not assigned|unassigned)$/i.test(name) && !records.creatives.some((creative) => normalizeName(creative.name) === normalizeName(name));
   const clients = records.clients;
+  const clientRecord = (ticket: Ticket) => clients.find((client) => ticket.clientId ? client.id === ticket.clientId || client.companyId === ticket.clientId : normalizeName(client.name) === normalizeName(ticket.client));
   const groupQueue = (name: string, tickets: Ticket[]) => {
     if (isCrew) return creativeTicketsUrl(records.creatives.find((creative) => normalizeName(creative.name) === normalizeName(tickets[0]?.assignee || ""))?.designerId);
     const client = clients.find((client) => normalizeName(client.name) === normalizeName(name) || client.id === tickets[0]?.clientId || client.companyId === tickets[0]?.clientId);
@@ -45,7 +49,7 @@ export function TicketsView({ source = "clients" }: { source?: "clients" | "crea
     return () => controller.abort();
   }, [source, isCrew, teamId]);
   const tickets = result?.tickets ?? [];
-  const visible = tickets.filter((ticket) => (!client || ticket.client === client) && (!creative || ticket.assignee === creative) && (!status || ticket.status === status) && `${ticket.id} ${ticket.title} ${ticket.client}`.toLowerCase().includes(search.toLowerCase()));
+  const visible = tickets.filter((ticket) => (isCrew || ((clientRecord(ticket)?.pc || "NO PC") === "NO PC" ? showNoPc : showPc)) && (!client || ticket.client === client) && (!creative || ticket.assignee === creative) && (!status || ticket.status === status) && `${ticket.id} ${ticket.title} ${ticket.client}`.toLowerCase().includes(search.toLowerCase()));
   const groups = isCrew
     ? [...visible.reduce((groups, ticket) => {
       const key = creativeAlias(ticket.assignee);
@@ -82,8 +86,8 @@ export function TicketsView({ source = "clients" }: { source?: "clients" | "crea
   );
 
   return <div>
-    <div className="flex flex-wrap items-end justify-between gap-5">
-      <div><p className="text-xs font-semibold uppercase tracking-widest text-muted">Active queue explorer</p><h1 className="mt-3 text-3xl font-semibold tracking-tight text-lime">{isCrew ? "Creative tickets" : "Client tickets"}</h1><p className="mt-3 text-muted">{isCrew ? "Your team queue, grouped by creative." : `Every active queue ticket across your ${clients.length} configured clients.`}</p></div>
+    <div className="dashboard-controls flex flex-wrap items-center justify-between gap-4 border-b border-line pb-5">
+      <div><PageHeading title={isCrew ? "Creative tickets" : "Client tickets"} updated={result ? `Updated ${new Date(result.fetchedAt).toLocaleTimeString()}` : "No saved activity"} /><p className="mt-3 text-sm text-muted">{isCrew ? "Your team queue, grouped by creative." : `Active queues across ${clients.length} configured clients.`}</p></div>
       <button disabled={loading} onClick={refresh} className="rounded-xl bg-lime px-5 py-3 text-sm font-semibold text-inset hover:bg-lime/85 disabled:cursor-wait disabled:opacity-60">{loading ? "Fetching queues…" : result ? "Refresh tickets ↻" : "Fetch tickets ↗"}</button>
     </div>
     {isCrew && <div className="mt-6 flex flex-wrap items-center gap-4 rounded-xl border border-line bg-panel p-5"><label className="text-sm text-muted">{defaultTeam.name} · Team ID<input inputMode="numeric" value={teamId} onChange={(event) => setTeamId(event.target.value)} disabled={loading} className="ml-3 w-24 rounded-lg border border-line bg-inset px-3 py-2 text-ink" /></label><p className="text-xs text-muted">Default 347. Change the ID, then fetch to inspect another team.{result && ` Current results: team ${fetchedTeamId}.`}</p></div>}
@@ -99,15 +103,15 @@ export function TicketsView({ source = "clients" }: { source?: "clients" | "crea
       <div className="grid gap-4 border-b border-line p-5 sm:grid-cols-2 xl:grid-cols-4">
         <label className="text-xs font-medium text-muted">Search<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Ticket ID, title or client" className="mt-2 block w-full rounded-lg border border-line bg-inset px-3 py-2.5 text-sm text-ink" /></label>
         {filter("Client", client, setClient, [...new Set(tickets.map((ticket) => ticket.client))].sort())}
-        {filter("Creative", creative, setCreative, [...new Set(tickets.map((ticket) => ticket.assignee))].sort())}
-        {filter("Status", status, setStatus, [...new Set(tickets.map((ticket) => ticket.status))].sort())}
+        {isCrew && filter("Creative", creative, setCreative, [...new Set(tickets.map((ticket) => ticket.assignee))].sort())}
+        {isCrew ? filter("Status", status, setStatus, [...new Set(tickets.map((ticket) => ticket.status))].sort()) : <fieldset className="sm:col-span-2"><legend className="text-xs font-medium text-muted">Production Coordinator</legend><div className="mt-2 flex gap-2"><button type="button" aria-pressed={showPc} onClick={() => setShowPc(!showPc)} className={`rounded-lg border px-3 py-2.5 text-sm ${showPc ? "border-blue/50 bg-blue/15 text-blue" : "border-line text-muted"}`}>Yes</button><button type="button" aria-pressed={showNoPc} onClick={() => setShowNoPc(!showNoPc)} className={`rounded-lg border px-3 py-2.5 text-sm ${showNoPc ? "border-blue/50 bg-blue/15 text-blue" : "border-line text-muted"}`}>No</button></div></fieldset>}
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[950px] text-left text-sm">
           <thead className="bg-inset text-xs text-muted"><tr>{["Ticket", "Title", "Creative", "Status", "Position", "Design time", "Time spent"].map((heading) => <th key={heading} scope="col" className="px-5 py-4 font-medium">{heading}</th>)}</tr></thead>
           {groups.map(([clientName, clientTickets], index) => <tbody key={clientName}>
             {index > 0 && <tr aria-hidden="true" className="bg-canvas"><td colSpan={7} className="h-6 border-y border-line p-0" /></tr>}
-            <tr className="border-t border-line bg-lime/5"><th scope="rowgroup" colSpan={7} className="px-5 py-4"><div className="flex flex-wrap items-center justify-between gap-3"><span className="font-semibold text-lime"><QueueLink href={groupQueue(clientName, clientTickets)}>{clientName}</QueueLink><span className="ml-3 text-xs font-normal text-muted">{clientTickets.length} {clientTickets.length === 1 ? "ticket" : "tickets"}</span></span><span className="text-xs font-medium text-ink">DT subtotal <span className="ml-2 font-mono text-lime">{totalDesignTime(clientTickets)}</span></span></div></th></tr>
+            <tr className="border-t border-line bg-lime/5"><th scope="rowgroup" colSpan={7} className="px-5 py-4"><div className="flex flex-wrap items-center justify-between gap-3"><span className="font-semibold text-lime"><QueueLink href={groupQueue(clientName, clientTickets)}>{clientName}</QueueLink><span className="ml-3 text-xs font-normal text-muted">{clientTickets.length} {clientTickets.length === 1 ? "ticket" : "tickets"}</span></span><span className="text-xs font-medium text-ink">{!isCrew && clientRecord(clientTickets[0]) && <span className="mr-4 text-muted">{clientRecord(clientTickets[0])!.pc} - Daily DT {formatDesignTime(clientRecord(clientTickets[0])!.dailyMinutes)}</span>}DT subtotal <span className="ml-2 font-mono text-lime">{totalDesignTime(clientTickets)}</span></span></div></th></tr>
             {clientTickets.map((ticket) => <tr key={ticket.entryId || ticket.id} className="border-t border-line hover:bg-inset/70">
               <td className="px-5 py-5"><a href={ticket.url} target="_blank" rel="noopener noreferrer" className="font-mono text-xs font-medium text-blue hover:underline">#{ticket.id} ↗</a>{(ticket.occurrence ?? 1) > 1 && <span className="mt-1 block text-xs text-lime">Revision {(ticket.occurrence ?? 1) - 1}</span>}</td>
               <td className="max-w-sm px-5 py-5 font-medium text-ink">{ticket.title}{isCrew && <p className="mt-1 text-xs font-normal text-muted"><QueueLink href={ticket.clientId ? clientTicketsUrl(ticket.clientId) : undefined}>{ticket.client}</QueueLink></p>}{ticket.retained && <span className="mt-2 block text-xs font-normal text-amber-200">Retained daily work · no longer in this queue</span>}</td>

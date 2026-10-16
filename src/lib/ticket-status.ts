@@ -28,8 +28,9 @@ export function applyObservation(entries: WorkEntry[], ticket: Ticket): WorkEntr
   const previous = entries.at(-1);
   if (!previous && ["draft", "inactive"].includes(next)) return entries;
   // Completed WIP is frozen until the next calendar day. Cancellation always stops DT counting.
-  if (previous?.lockedWip && next !== "canceled") return entries;
-  const revision = next === "revision" && previous && statusKey(previous.status) !== "revision" && previous.revisionEligible;
+  const resumed = previous && previous.completion === 1 && next === "in_progress" && statusKey(previous.status) !== "in_progress";
+  if (previous?.lockedWip && next !== "canceled" && !resumed) return entries;
+  const revision = resumed || (next === "revision" && previous && statusKey(previous.status) !== "revision" && previous.revisionEligible);
   const base = revision ? undefined : previous;
   const occurrence = revision ? previous.occurrence + 1 : previous?.occurrence ?? 1;
   const seenInProgress = Boolean(base?.seenInProgress) || next === "in_progress";
@@ -67,7 +68,7 @@ export function applyObservation(entries: WorkEntry[], ticket: Ticket): WorkEntr
 }
 
 export function countedMinutes(ticket: Ticket) {
-  if (ticket.noBandwidth) return 0;
+  if (ticket.noBandwidth || ticket.referenceOnly) return 0;
   return ["canceled", "customer_clarification", "draft", "inactive"].includes(statusKey(ticket.status)) ? 0 : designTimeMinutes(ticket.designTime);
 }
 

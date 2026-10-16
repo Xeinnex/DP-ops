@@ -9,6 +9,7 @@ import { countedMinutes, completedMinutes, scopeRank, statusKey } from "@/lib/ti
 import { ManualTicketForm } from "@/components/manual-ticket-form";
 import { DesignTimeEditor } from "@/components/design-time-editor";
 import { ScopeBadges } from "@/components/scope-badges";
+import { PageHeading } from "@/components/page-heading";
 import { CreativeSummary } from "@/components/creative-summary";
 import { QueueLink } from "@/components/queue-link";
 import { clientTicketsUrl, creativeTicketsUrl } from "@/lib/queue-links";
@@ -25,6 +26,16 @@ export function Dashboard() {
   const [progress, setProgress] = useState("");
   const [working, setWorking] = useState(false);
   const [adding, setAdding] = useState(false);
+
+  async function removeCreativeEntry(ticket: Ticket) {
+    if (!window.confirm("Remove this card from this creative daily dashboard? Raw ticket history is kept.")) return;
+    setWorking(true); setError("");
+    try {
+      const response = await fetch("/api/creative-entry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ day, entryId: ticket.entryId, assignee: ticket.assignee }) });
+      const body = await response.json(); if (!response.ok) throw new Error(body.error); setData(body);
+    } catch (error) { setError(error instanceof Error ? error.message : "Unable to remove card."); }
+    finally { setWorking(false); }
+  }
 
   async function updateOutsideStatus(ticket: Ticket, status: OutsideStatus | null) {
     setWorking(true); setError("");
@@ -94,7 +105,7 @@ export function Dashboard() {
 
   return <div className="space-y-5">
     <header className="flex flex-wrap items-center justify-between gap-4 border-b border-line pb-5">
-      <div className="fixed inset-x-0 top-0 z-20 flex h-16 items-center gap-2 border-b border-line bg-canvas pl-16 pr-3 sm:gap-4 lg:static lg:h-auto lg:border-0 lg:bg-transparent lg:px-0"><h1 className="text-base font-semibold text-lime sm:text-2xl">Dashboard</h1><span className="text-[10px] text-muted sm:text-xs">{lastFetch ? `Updated ${new Date(lastFetch).toLocaleTimeString()}` : "No saved activity"}</span></div>
+      <PageHeading title="Dashboard" updated={lastFetch ? `Updated ${new Date(lastFetch).toLocaleTimeString()}` : "No saved activity"} />
       <div className="dashboard-controls flex flex-wrap items-center gap-3"><label className="flex items-center gap-2 text-xs text-muted">Date<input type="date" disabled={refreshing || working || adding} value={day} onChange={(event) => { if (event.target.value) { setDay(event.target.value); setData(null); setProgress(""); } }} className="rounded-lg border border-line bg-panel px-3 py-2 text-sm text-ink" /></label>{data && day === today() && !adding && <button disabled={refreshing || working} onClick={() => setAdding(true)} className="rounded-lg border border-blue/50 px-3 py-2 text-sm text-blue">+ Add missed ticket</button>}<button disabled={refreshing || working || adding || day !== today()} onClick={refreshBoth} className="rounded-lg bg-lime px-4 py-2.5 text-sm font-semibold text-inset disabled:opacity-50">{refreshing ? "Refreshing…" : "Refresh both queues ↻"}</button></div>
     </header>
     {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
@@ -104,7 +115,7 @@ export function Dashboard() {
     {data && <>
       <section><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Creative bandwidth</h2><div className="flex gap-4 text-xs text-muted"><span><span className="mr-2 inline-block h-2 w-2 rounded-full bg-blue" />Assigned DT</span><span><span className="mr-2 inline-block h-2 w-2 rounded-full bg-lime" />Completed DT</span></div></div>
         <div className="grid gap-4 lg:grid-cols-2">{[...data.creatives].sort((a, b) => scopeRank(a) - scopeRank(b) || a.alias.localeCompare(b.alias)).map((creative) => {
-          const tickets = creativeWork(data.tickets, data.workedTickets, creative.name).filter((ticket) => statusKey(ticket.status) !== "customer_clarification").sort((a, b) => outsideStatuses.indexOf(simplifiedStatus(a)) - outsideStatuses.indexOf(simplifiedStatus(b)));
+          const tickets = creativeWork(data.tickets, data.workedTickets, creative.name).sort((a, b) => outsideStatuses.indexOf(simplifiedStatus(a)) - outsideStatuses.indexOf(simplifiedStatus(b)));
           const used = sum(tickets);
           const done = completed(tickets);
           const capacity = effectiveCapacity(creative);
@@ -114,10 +125,10 @@ export function Dashboard() {
           const available = capacity - used;
           const allDone = used > 0 && tickets.reduce((total, ticket) => total + completedMinutes(ticket), 0) >= used;
           const overloaded = used > capacity;
-          const awayWithTickets = creative.availability === "away" && tickets.some((ticket) => !ticket.noBandwidth && statusKey(ticket.status) !== "canceled");
+          const awayWithTickets = creative.availability === "away" && tickets.some((ticket) => !ticket.referenceOnly && !ticket.noBandwidth && statusKey(ticket.status) !== "canceled");
           const previous = data.previousProgress?.find((progress) => progress.creativeId === creative.id);
           const changed = previous && (previous.assignedMinutes !== used || previous.completedMinutes !== done || previous.capacityMinutes !== capacity);
-          return <div key={creative.id} className="relative self-start"><details className={`overflow-hidden rounded-xl border ${awayWithTickets ? "border-red-500/70 bg-red-500/25" : overloaded ? "border-red-400/30 bg-red-400/5" : allDone ? "border-lime/30 bg-lime/5" : "border-line bg-panel"}`}>
+          return <div key={creative.id} className="relative self-start"><details className={`overflow-hidden rounded-xl border ${allDone ? "border-lime/30 bg-lime/5" : awayWithTickets ? "border-red-500/70 bg-red-500/25" : overloaded ? "border-red-400/30 bg-red-400/5" : "border-line bg-panel"}`}>
             <summary className="cursor-pointer list-none px-3 py-3 sm:px-5">
               <CreativeSummary alias={creative.alias} availability={availability.value}>
                 <div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className={`text-sm font-semibold sm:text-base ${availability.value === "away" ? "text-red-500" : availability.value === "half_day" ? "text-yellow-400" : "text-lime"}`}><QueueLink href={creativeTicketsUrl(creative.designerId)}>{creative.alias}</QueueLink>{availability.value !== "available" && <span className={`ml-1 text-[9px] font-medium ${availability.value === "away" ? "text-red-300" : "text-yellow-300"}`}>{availability.value === "half_day" ? "Half day" : "Away"}</span>}</h3><div className="mt-1 flex flex-wrap items-center gap-2"><ScopeBadges scopes={creative.scopes} /><span className="text-[10px] text-muted">{tickets.length} tickets</span></div></div><p className={`shrink-0 text-right text-xs sm:text-sm ${available < 0 ? "text-red-300" : "text-ink"}`}>{signedTime(available)} left</p></div>
@@ -132,18 +143,20 @@ export function Dashboard() {
                 const status = simplifiedStatus(ticket);
                 const canceled = statusKey(ticket.status) === "canceled";
                 const client = data.clients.find((client) => ticket.clientId ? client.id === ticket.clientId || client.companyId === ticket.clientId : normalizeName(client.name) === normalizeName(ticket.client));
-                const editable = Boolean(ticket.entryId && data.tickets.some((entry) => entry.entryId === ticket.entryId && normalizeName(entry.assignee) === normalizeName(ticket.assignee)));
-                const tint = canceled ? "border-red-400/30 bg-red-400/5" : status === "Delivered" ? "border-transparent bg-lime/10" : status === "In Progress" ? "border-transparent bg-yellow-400/10" : "border-transparent bg-inset";
+                const editable = !ticket.referenceOnly && Boolean(ticket.entryId && data.tickets.some((entry) => entry.entryId === ticket.entryId && normalizeName(entry.assignee) === normalizeName(ticket.assignee)));
+                const tint = ticket.referenceOnly ? "border-blue/30 bg-blue/15" : canceled ? "border-red-400/30 bg-red-400/5" : status === "Delivered" ? "border-transparent bg-lime/10" : status === "In Progress" ? "border-transparent bg-yellow-400/10" : "border-transparent bg-inset";
                 const tag = status === "Delivered" ? "bg-lime/15 text-lime" : status === "In Progress" ? "bg-yellow-400/15 text-yellow-300" : "bg-blue/15 text-blue";
-                return <div key={ticket.entryId || ticket.id} title={ticket.reviewFlag} className={`rounded-lg border px-3 py-2 text-sm ${tint} ${ticket.noBandwidth ? "opacity-60" : ""}`}>
+                return <div key={ticket.entryId || ticket.id} title={ticket.reviewFlag} className={`rounded-lg border px-3 py-2 text-sm ${tint} ${ticket.noBandwidth && !ticket.referenceOnly ? "opacity-60" : ""}`}>
                   <div className="grid grid-cols-[6rem_minmax(0,1fr)_auto] items-center gap-2">
                     <a href={ticket.url} target="_blank" rel="noopener noreferrer" className="truncate text-[11px] font-bold text-blue hover:underline" title={`Ticket ${ticket.id}${(ticket.occurrence ?? 1) > 1 ? ` · Revision ${(ticket.occurrence ?? 1) - 1}` : ""}`}>#{ticket.id}{(ticket.occurrence ?? 1) > 1 ? ` · R${(ticket.occurrence ?? 1) - 1}` : ""}</a>
                     <p className={`truncate font-semibold ${client ? "text-ink" : "text-fuchsia-300"}`} title={ticket.client}><QueueLink href={clientTicketsUrl(client?.companyId || client?.id || ticket.clientId || "")}>{ticket.client || "Unknown client"}</QueueLink></p>
                     <span className="font-mono text-lime" title={ticket.noBandwidth ? "Excluded from workload totals" : undefined}>{signedTime(designTimeMinutes(ticket.designTime))}</span>
                   </div>
+                  {ticket.referenceOnly && <p className="mt-1 text-[10px] text-blue">Reference only - excluded from workload{ticket.currentAssignee && ticket.currentAssignee !== ticket.assignee ? ` - Now: ${ticket.currentAssignee}` : ` - ${ticket.status}`}</p>}
                   <div className="mt-1.5 flex items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <button disabled={working || refreshing || !editable || canceled} onClick={() => updateTicketControl(ticket, "delivery")} className="rounded-md border border-lime/30 px-2 py-0.5 text-[10px] font-bold text-lime disabled:opacity-40">{status === "Delivered" ? "Undo Delivered" : "Mark Delivered"}</button>
+                      <button disabled={working || refreshing} onClick={() => removeCreativeEntry(ticket)} className="rounded-md border border-red-400/30 px-2 py-0.5 text-[10px] font-bold text-red-300 disabled:opacity-40">Delete</button>
                       <DesignTimeEditor ticket={ticket} day={day} disabled={working || refreshing || !editable} onBusy={setWorking} onSaved={setData} />
                       <button aria-pressed={Boolean(ticket.noBandwidth)} disabled={working || refreshing || !editable} onClick={() => updateTicketControl(ticket, "bandwidth")} className={`rounded-md border border-red-400/40 px-2 py-0.5 text-[10px] font-bold text-red-300 disabled:opacity-40 ${ticket.noBandwidth ? "bg-red-400/20" : ""}`}>{ticket.noBandwidth ? "Restore BW" : "No BW"}</button>
                     </div>

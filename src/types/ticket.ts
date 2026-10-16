@@ -27,6 +27,9 @@ export interface Ticket {
   outsideStatus?: "Assigned" | "In Progress" | "Delivered";
   deliveryOverride?: boolean;
   noBandwidth?: boolean;
+  referenceOnly?: boolean;
+  currentAssignee?: string;
+  hiddenFromCreative?: boolean;
 }
 
 export interface TicketResult {
