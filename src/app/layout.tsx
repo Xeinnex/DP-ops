@@ -18,7 +18,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "DP-Ops | Creative operations",
   description: "Your local workspace for creative queues and client tickets.",
-  icons: { icon: "/dp-ops.svg", shortcut: "/dp-ops.svg", apple: "/dp-ops.svg" },
+  icons: { shortcut: "/favicon.ico" },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
