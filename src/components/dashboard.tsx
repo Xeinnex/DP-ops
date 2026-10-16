@@ -144,7 +144,7 @@ export function Dashboard() {
                 const canceled = statusKey(ticket.status) === "canceled";
                 const client = data.clients.find((client) => ticket.clientId ? client.id === ticket.clientId || client.companyId === ticket.clientId : normalizeName(client.name) === normalizeName(ticket.client));
                 const editable = !ticket.referenceOnly && Boolean(ticket.entryId && data.tickets.some((entry) => entry.entryId === ticket.entryId && normalizeName(entry.assignee) === normalizeName(ticket.assignee)));
-                const tint = ticket.referenceOnly ? "border-blue/30 bg-blue/15" : canceled ? "border-red-400/30 bg-red-400/5" : status === "Delivered" ? "border-transparent bg-lime/10" : status === "In Progress" ? "border-transparent bg-yellow-400/10" : "border-transparent bg-inset";
+                const tint = ticket.referenceOnly ? "border-red-400/30 bg-red-400/10" : canceled ? "border-red-400/30 bg-red-400/5" : status === "Delivered" ? "border-transparent bg-lime/10" : status === "In Progress" ? "border-transparent bg-yellow-400/10" : "border-transparent bg-inset";
                 const tag = status === "Delivered" ? "bg-lime/15 text-lime" : status === "In Progress" ? "bg-yellow-400/15 text-yellow-300" : "bg-blue/15 text-blue";
                 return <div key={ticket.entryId || ticket.id} title={ticket.reviewFlag} className={`rounded-lg border px-3 py-2 text-sm ${tint} ${ticket.noBandwidth && !ticket.referenceOnly ? "opacity-60" : ""}`}>
                   <div className="grid grid-cols-[6rem_minmax(0,1fr)_auto] items-center gap-2">
@@ -152,7 +152,7 @@ export function Dashboard() {
                     <p className={`truncate font-semibold ${client ? "text-ink" : "text-fuchsia-300"}`} title={ticket.client}><QueueLink href={clientTicketsUrl(client?.companyId || client?.id || ticket.clientId || "")}>{ticket.client || "Unknown client"}</QueueLink></p>
                     <span className="font-mono text-lime" title={ticket.noBandwidth ? "Excluded from workload totals" : undefined}>{signedTime(designTimeMinutes(ticket.designTime))}</span>
                   </div>
-                  {ticket.referenceOnly && <p className="mt-1 text-[10px] text-blue">Reference only - excluded from workload{ticket.currentAssignee && ticket.currentAssignee !== ticket.assignee ? ` - Now: ${ticket.currentAssignee}` : ` - ${ticket.status}`}</p>}
+                  {ticket.referenceOnly && <p className="mt-1 text-[10px] text-red-300">Reference only - excluded from workload{ticket.currentAssignee && ticket.currentAssignee !== ticket.assignee ? ` - Now: ${ticket.currentAssignee}` : ` - ${ticket.status}`}</p>}
                   <div className="mt-1.5 flex items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <button disabled={working || refreshing || !editable || canceled} onClick={() => updateTicketControl(ticket, "delivery")} className="rounded-md border border-lime/30 px-2 py-0.5 text-[10px] font-bold text-lime disabled:opacity-40">{status === "Delivered" ? "Undo Delivered" : "Mark Delivered"}</button>
