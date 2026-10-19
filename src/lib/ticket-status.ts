@@ -43,10 +43,15 @@ export function applyObservation(entries: WorkEntry[], ticket: Ticket): WorkEntr
   else if (seenInProgress && !["canceled", "draft", "inactive", "customer_clarification"].includes(next)) completion = 1;
   if (base?.seenInProgress && next !== "in_progress" && next !== statusKey(base.status)) reviewFlag = "Status changed after In Progress — verify delivery";
   if (next === "canceled") reviewFlag = "Canceled — excluded from DT";
+  // Platform unassignment must not erase the owner of work already counted today.
+  const unassigned = !ticket.assignee.trim() || /^(not assigned|unassigned|none)$/i.test(ticket.assignee.trim());
+  if (base?.dtLocked && base.completion === 1 && !["canceled", "customer_clarification", "draft", "inactive"].includes(next)) completion = 1;
+  const dtLocked = Boolean(base?.dtLocked) || ["in_progress", "quality_review"].includes(next) || completion === 1;
   const entry: WorkEntry = {
     ...ticket,
-    designTime: base?.dtLocked && (next !== "in_progress" || base.dtFrozen) ? base.designTime : (next === "in_progress" || completion === 1) && ticket.designTime === null && base ? base.designTime : ticket.designTime,
-    dtLocked: Boolean(base?.dtLocked) || next === "in_progress" || completion === 1,
+    assignee: base && dtLocked && unassigned ? base.assignee : ticket.assignee,
+    designTime: base?.dtLocked ? base.designTime : (next === "in_progress" || completion === 1) && ticket.designTime === null && base ? base.designTime : ticket.designTime,
+    dtLocked,
     dtFrozen: Boolean(base?.dtFrozen) || Boolean(base?.dtLocked && next !== "in_progress") || completion === 1,
     entryId: `${ticket.id}:${occurrence}`,
     occurrence,

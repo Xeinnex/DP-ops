@@ -122,10 +122,13 @@ function dailyTickets(day: string, teamId = "347", references?: Ticket[], includ
   const entries = new Map<string, WorkEntry[]>();
   const assignments = new Map<string, WorkEntry>();
   const overrides = new Map((db().prepare("SELECT entryId,completedAt FROM manual_completions WHERE day=?").all(day) as { entryId: string; completedAt: string }[]).map((row) => [row.entryId, row.completedAt]));
+  const controls = db().prepare("SELECT entryId,assignee,delivered,noBandwidth,designTime FROM ticket_controls WHERE day=?").all(day) as { entryId: string; assignee: string; delivered: number | null; noBandwidth: number; designTime: string | null }[];
   const edits = db().prepare("SELECT entryId,designTime,editedAt FROM design_time_edits WHERE day=? ORDER BY id").all(day) as { entryId: string; designTime: string; editedAt: string }[];
   const applyManual = (entry: WorkEntry, at?: string): WorkEntry => {
     const edit = edits.findLast((edit) => edit.entryId === entry.entryId && (!at || edit.editedAt <= at));
-    const corrected = edit ? { ...entry, designTime: edit.designTime, manualDesignTime: true } : entry;
+    const delivered = !["canceled", "customer_clarification", "draft", "inactive"].includes(statusKey(entry.status)) && controls.find((control) => control.entryId === entry.entryId && control.assignee === entry.assignee && control.delivered === 1);
+    const locked = delivered ? { ...entry, completion: 1, dtLocked: true, dtFrozen: true, designTime: delivered.designTime ?? entry.designTime } : entry;
+    const corrected = edit ? { ...locked, designTime: edit.designTime, manualDesignTime: true } : locked;
     return overrides.has(entry.entryId) && (!at || overrides.get(entry.entryId)! <= at) ? { ...corrected, completion: ["canceled", "customer_clarification", "draft", "inactive"].includes(statusKey(entry.status)) ? 0 : 1, manualCompletion: true, dtLocked: true, dtFrozen: true, lockedWip: statusKey(entry.status) === "incomplete" || entry.lockedWip } : corrected;
   };
   for (const { ticket, at } of observations) {
@@ -143,7 +146,6 @@ function dailyTickets(day: string, teamId = "347", references?: Ticket[], includ
   const manualIds = new Set(observations.filter(({ ticket }) => ticket.manuallyAdded && !ticket.independentManual).map(({ ticket }) => ticket.id));
   const outsideOverrides = db().prepare("SELECT entryId,assignee,status FROM outside_statuses WHERE day=?").all(day) as { entryId: string; assignee: string; status: OutsideStatus }[];
   const creatives = registry().creatives;
-  const controls = db().prepare("SELECT entryId,assignee,delivered,noBandwidth,designTime FROM ticket_controls WHERE day=?").all(day) as { entryId: string; assignee: string; delivered: number | null; noBandwidth: number; designTime: string | null }[];
   const decorate = (ticket: WorkEntry) => {
     const override = outsideTeam(ticket, creatives) ? outsideOverrides.find((row) => row.entryId === ticket.entryId && row.assignee === ticket.assignee) : undefined;
     const applies = override && !["canceled", "customer_clarification"].includes(statusKey(ticket.status));

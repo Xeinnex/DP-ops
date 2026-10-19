@@ -3,7 +3,7 @@ import { normalizeName } from "@/lib/daily";
 
 export function creativeWork(tickets: Ticket[], worked: Ticket[], name: string) {
   const identity = (ticket: Ticket) => ticket.entryId || `${ticket.id}:1`;
-  const current = tickets.filter((ticket) => !ticket.hiddenFromCreative && normalizeName(ticket.assignee) === normalizeName(name)).map((ticket) => ({ ...ticket, referenceOnly: ticket.referenceOnly || /^(Customer Clarification|Draft|Inactive|Cancel[l]?ed)$/i.test(ticket.status) || Boolean(ticket.retained && (ticket.completion ?? 0) < 1) }));
+  const current = tickets.filter((ticket) => !ticket.hiddenFromCreative && normalizeName(ticket.assignee) === normalizeName(name)).map((ticket) => ({ ...ticket, referenceOnly: ticket.referenceOnly || /^(Customer Clarification|Draft|Inactive|Cancel[l]?ed)$/i.test(ticket.status) || Boolean(ticket.retained && !ticket.dtLocked && (ticket.completion ?? 0) < 1) }));
   const locked = worked.filter((ticket) => !ticket.hiddenFromCreative && normalizeName(ticket.assignee) === normalizeName(name));
   return [
     ...current.map((ticket) => ({ ...ticket, designTime: ticket.referenceOnly ? ticket.designTime ?? locked.find((record) => identity(record) === identity(ticket))?.designTime ?? null : ticket.designTime, worked: locked.some((record) => identity(record) === identity(ticket)) })),
