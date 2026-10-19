@@ -1,5 +1,5 @@
 import { allowedRequestOrigin } from "@/lib/request-origin";
-import { dailyData, hideCreativeEntry } from "@/lib/database";
+import { dailyData, hideCreativeEntry, restoreCreativeEntry } from "@/lib/database";
 import { validDay } from "@/lib/daily";
 
 export async function POST(request: Request) {
@@ -7,7 +7,9 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     if (!validDay(body.day) || typeof body.entryId !== "string" || typeof body.assignee !== "string") throw new Error("Provide a daily work entry and creative.");
-    hideCreativeEntry(body.day, body.entryId, body.assignee);
+    if (body.action === "restore") restoreCreativeEntry(body.day, body.entryId, body.assignee);
+    else if (!body.action || body.action === "delete") hideCreativeEntry(body.day, body.entryId, body.assignee);
+    else throw new Error("Unknown creative entry action.");
     return Response.json(dailyData(body.day));
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Unable to remove creative entry." }, { status: 400 }); }
 }

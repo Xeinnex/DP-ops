@@ -35,7 +35,7 @@ export function ManualTicketForm({ creatives, onSaved, onCancel }: { creatives: 
 
   return <form onSubmit={save} className="rounded-xl border border-blue/40 bg-panel p-5">
     <div className="flex items-center justify-between gap-4"><h2 className="font-semibold text-lime">Add missed ticket</h2><button type="button" disabled={busy} onClick={onCancel} className="text-sm text-muted">Cancel</button></div>
-    <p className="mt-2 text-xs text-muted">Saved for today in Bogotá. Look up the client and status, then enter the DT and creative for this work.</p>
+    <p className="mt-2 text-xs text-muted">Each addition creates a separate work entry for today in Bogotá, even for a ticket already saved. Set the DT, creative and status for this work.</p>
     <fieldset disabled={busy} className="mt-4 space-y-4 disabled:opacity-60">
       <div className="flex flex-wrap items-end gap-3"><label className="min-w-60 flex-1 text-xs text-muted">Ticket URL<input type="url" required value={url} onChange={(event) => { setUrl(event.target.value); setDetail(null); }} placeholder="https://jar.designpickle.com/admin/tickets/1234567" className={field} /></label><button type="button" onClick={() => submit("lookup")} disabled={!url} className="rounded-lg border border-blue px-4 py-2 text-sm text-blue disabled:opacity-40">Look up ticket</button></div>
       {detail && <div className="rounded-lg bg-inset p-3 text-sm"><p className="font-medium">{detail.client}</p><p className="mt-1 text-muted">{detail.title} · Website status: {detail.status}</p></div>}

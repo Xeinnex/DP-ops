@@ -66,14 +66,14 @@ export function WorkspaceShell({ children, version }: { children: ReactNode; ver
       <div className="mx-auto flex min-h-full max-w-lg flex-col">
         <Link href="/" className="mb-6 flex items-center gap-3 text-xl font-bold tracking-tight"><Image src="/icon.png" alt="Team 04" width={40} height={40} unoptimized className="h-10 w-10 shrink-0" />{local ? "Local Ops" : "DP-Ops"}</Link>
         <div onClick={(event) => { if ((event.target as HTMLElement).closest("a")) setOpen(false); }}><Navigation /></div>
-        <div className="mt-auto pt-8"><div className="rounded-xl border border-line p-4"><p className="text-sm font-medium">Creative operations</p><p className="mt-2 text-xs text-muted">{local ? "Local session" : "Live session"}</p><p className="mt-1 text-xs text-muted">{local ? "Local workspace" : "Online workspace"} · v{version}</p></div></div>
+        <div className="mt-auto pt-8"><div className="rounded-xl border border-line p-4"><p className="text-sm font-medium">Creative operations</p><p className="mt-1 text-xs text-muted">{local ? "Local workspace" : "Online workspace"} · v{version}</p></div></div>
       </div>
     </dialog>
     <aside className="fixed inset-y-0 left-0 hidden w-60 overflow-y-auto border-r border-line bg-panel p-6 lg:block">
       <div className="flex min-h-full flex-col">
         <Link href="/" className="mb-8 flex items-center gap-3 text-xl font-bold tracking-tight"><Image src="/icon.png" alt="Team 04" width={40} height={40} unoptimized className="h-10 w-10 shrink-0" />{local ? "Local Ops" : "DP-Ops"}</Link>
         <Navigation />
-        <div className="mt-auto pt-8"><div className="rounded-xl border border-line p-4"><p className="text-sm font-medium">Creative operations</p><p className="mt-2 text-xs text-muted">{local ? "Local session" : "Live session"}</p><p className="mt-1 text-xs text-muted">{local ? "Local workspace" : "Online workspace"} · v{version}</p></div></div>
+        <div className="mt-auto pt-8"><div className="rounded-xl border border-line p-4"><p className="text-sm font-medium">Creative operations</p><p className="mt-1 text-xs text-muted">{local ? "Local workspace" : "Online workspace"} · v{version}</p></div></div>
       </div>
     </aside>
     <div className="min-w-0 lg:ml-60"><main className="mx-auto max-w-7xl px-3 pb-8 pt-16 sm:px-6 sm:pb-12 lg:px-10 lg:pt-8">{children}</main></div>

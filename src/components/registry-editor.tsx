@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import type { Registry, ClientRecord, CreativeRecord } from "@/types/operations";
 import { signedTime } from "@/lib/daily";
+import { ClientHistory } from "@/components/client-history";
 import { PageHeading } from "@/components/page-heading";
 import { QueueLink } from "@/components/queue-link";
 import { clientTicketsUrl, creativeTicketsUrl } from "@/lib/queue-links";
@@ -9,6 +10,7 @@ import { availabilityOptions, effectiveCapacity } from "@/lib/availability";
 
 export function RegistryEditor({ kind }: { kind: "clients" | "creatives" }) {
   const [data, setData] = useState<Registry | null>(null);
+  const [historyClient, setHistoryClient] = useState<ClientRecord | null>(null);
   const [editing, setEditing] = useState(false);
   const [existing, setExisting] = useState(false);
   const [id, setId] = useState("");
@@ -51,6 +53,7 @@ export function RegistryEditor({ kind }: { kind: "clients" | "creatives" }) {
   }
   const inputClass = "mt-2 block w-full rounded-lg border border-line bg-inset px-3 py-2 text-ink";
   return <div className="space-y-6"><div className="dashboard-controls flex flex-wrap items-center justify-between gap-4"><div><PageHeading title={kind === "clients" ? "Clients DB" : "Creatives DB"} /><p className="mt-3 text-sm text-muted">Edit your persistent {kind === "clients" ? "client subscriptions and daily allocation" : "team names, aliases, scopes and bandwidth"}.</p></div><button onClick={() => edit()} className="rounded-xl bg-lime px-4 py-3 text-sm font-semibold text-inset">Add {kind === "clients" ? "client" : "creative"}</button></div>
+    {historyClient && <ClientHistory key={historyClient.id} client={historyClient} onClose={() => setHistoryClient(null)} />}
     {error && <p role="alert" className="text-red-300">{error}</p>}
     {editing && <form className="grid gap-4 rounded-xl border border-line bg-panel p-6 sm:grid-cols-2" onSubmit={(event) => { event.preventDefault(); void mutate({ kind, id: kind === "creatives" && !existing ? crypto.randomUUID() : kind === "clients" && !existing ? queueId.trim() : id.trim(), companyId: kind === "clients" ? queueId.trim() : undefined, designerId: kind === "creatives" ? queueId.trim() : undefined, name, alias, scopes, dailyMinutes: Number(minutes), capacityMinutes: Number(minutes), pc }); }}>
       {kind === "clients" && <div className="sm:col-span-2"><label className="text-sm text-muted">Client active queue URL<input type="url" disabled={lookingUp || busy} value={queueUrl} onChange={(event) => { setQueueUrl(event.target.value); if (!existing) { setQueueId(""); setName(""); } }} placeholder="https://jar.designpickle.com/admin/tickets?q%5Bcompany_id_eq%5D=19604&q%5Bticket_status%5D=active" className={inputClass} /></label><button type="button" disabled={lookingUp || busy || !queueUrl} onClick={lookupClient} className="mt-2 rounded-lg border border-blue/50 px-3 py-2 text-sm text-blue disabled:opacity-40">{lookingUp ? "Looking up..." : "Look up company"}</button></div>}
@@ -62,7 +65,7 @@ export function RegistryEditor({ kind }: { kind: "clients" | "creatives" }) {
       <div className="flex gap-3 sm:col-span-2"><button disabled={busy || lookingUp || (kind === "clients" && !existing && !queueId)} className="rounded-lg bg-lime px-4 py-2 font-medium text-inset">{busy ? "Saving…" : "Save record"}</button><button type="button" onClick={() => setEditing(false)} className="rounded-lg border border-line px-4 py-2">Cancel</button></div>
     </form>}
     {!data && <p className="text-muted">Loading database…</p>}
-    <div className="space-y-3">{data?.[kind].map((record) => <div key={record.id} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-line bg-panel p-5"><div><p className="font-medium"><QueueLink href={"alias" in record ? creativeTicketsUrl(record.designerId) : clientTicketsUrl(record.companyId || record.id)}>{"alias" in record ? record.alias : record.name}</QueueLink></p><p className="mt-1 text-sm text-muted">{"alias" in record ? `${record.name} · Designer ID ${record.designerId || "not set"} · ${record.scopes.join(" + ")} · BW ${signedTime(effectiveCapacity(record))} · ${availabilityOptions.find((option) => option.value === (record.availability || "available"))?.label}` : `ID ${record.companyId || record.id} · ${signedTime(record.dailyMinutes)} daily DT · ${record.pc}`}</p></div><div className="flex gap-3"><button disabled={busy} onClick={() => edit(record)} className="rounded-lg border border-line px-3 py-2 text-sm">Edit</button><button disabled={busy} onClick={() => { if (window.confirm(`Remove ${record.name} from the active registry? Saved ticket history will remain.`)) void mutate({ kind, id: record.id, action: "delete" }); }} className="rounded-lg border border-red-400/30 px-3 py-2 text-sm text-red-300">Remove</button></div></div>)}</div>
+    <div className="space-y-3">{data?.[kind].map((record) => <div key={record.id} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-line bg-panel p-5"><div><p className="font-medium"><QueueLink href={"alias" in record ? creativeTicketsUrl(record.designerId) : clientTicketsUrl(record.companyId || record.id)}>{"alias" in record ? record.alias : record.name}</QueueLink></p><p className="mt-1 text-sm text-muted">{"alias" in record ? `${record.name} · Designer ID ${record.designerId || "not set"} · ${record.scopes.join(" + ")} · BW ${signedTime(effectiveCapacity(record))} · ${availabilityOptions.find((option) => option.value === (record.availability || "available"))?.label}` : `ID ${record.companyId || record.id} · ${signedTime(record.dailyMinutes)} daily DT · ${record.pc}`}</p></div><div className="flex flex-wrap gap-3">{"pc" in record && <button onClick={() => setHistoryClient(record)} className="rounded-lg border border-blue/40 px-3 py-2 text-sm text-blue">Show history</button>}<button disabled={busy} onClick={() => edit(record)} className="rounded-lg border border-line px-3 py-2 text-sm">Edit</button><button disabled={busy} onClick={() => { if (window.confirm(`Remove ${record.name} from the active registry? Saved ticket history will remain.`)) void mutate({ kind, id: record.id, action: "delete" }); }} className="rounded-lg border border-red-400/30 px-3 py-2 text-sm text-red-300">Remove</button></div></div>)}</div>
     <p className="text-xs text-muted">Removing a record preserves ticket history. Removing a client excludes it from future client queue fetches. Matching uses the full website name; aliases are display names.</p>
   </div>;
 }

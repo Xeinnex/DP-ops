@@ -16,6 +16,8 @@ import { clientTicketsUrl, creativeTicketsUrl } from "@/lib/queue-links";
 import { availabilityOptions, effectiveCapacity, capacityPercent } from "@/lib/availability";
 import type { CreativeAvailability } from "@/types/operations";
 import { outsideTeam, outsideStatuses, simplifiedStatus, type OutsideStatus } from "@/lib/outside-tickets";
+import { compareClientAllocation, lastActiveLabel } from "@/lib/client-activity";
+import { waitingAssignments } from "@/lib/waiting-assignments";
 import { designTimeMinutes } from "@/lib/design-time";
 
 export function Dashboard() {
@@ -27,11 +29,11 @@ export function Dashboard() {
   const [working, setWorking] = useState(false);
   const [adding, setAdding] = useState(false);
 
-  async function removeCreativeEntry(ticket: Ticket) {
-    if (!window.confirm("Remove this card from this creative daily dashboard? Raw ticket history is kept.")) return;
+  async function removeCreativeEntry(ticket: Ticket, action: "delete" | "restore" = "delete") {
+    if (action === "delete" && !window.confirm("Remove this card from this creative daily dashboard? Raw ticket history is kept.")) return;
     setWorking(true); setError("");
     try {
-      const response = await fetch("/api/creative-entry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ day, entryId: ticket.entryId, assignee: ticket.assignee }) });
+      const response = await fetch("/api/creative-entry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ day, entryId: ticket.entryId, assignee: ticket.assignee, action }) });
       const body = await response.json(); if (!response.ok) throw new Error(body.error); setData(body);
     } catch (error) { setError(error instanceof Error ? error.message : "Unable to remove card."); }
     finally { setWorking(false); }
@@ -96,9 +98,9 @@ export function Dashboard() {
   const assigned = (ticket: Ticket) => Boolean(ticket.assignee) && !/^(not assigned|unassigned|none)$/i.test(ticket.assignee);
   const clientRows = data?.clients.map((client) => {
     const tickets = data.tickets.filter((ticket) => ticket.clientId ? ticket.clientId === client.id || ticket.clientId === client.companyId : normalizeName(ticket.client) === normalizeName(client.name));
-    return { client, tickets, allocated: sum(tickets.filter(assigned)), complete: completed(tickets.filter(assigned)) };
-  }).sort((a, b) => Number(b.tickets.length > 0) - Number(a.tickets.length > 0) || a.client.name.localeCompare(b.client.name)) ?? [];
-  const unallocatedRows = clientRows.map((row) => ({ ...row, tickets: row.tickets.filter((ticket) => !["customer_clarification", "canceled", "draft", "inactive"].includes(statusKey(ticket.status))) })).filter((row) => row.tickets.length > 0 && row.allocated === 0);
+    return { client, tickets, lastActiveDay: data.clientActivity?.[client.id], allocated: sum(tickets.filter(assigned)), complete: completed(tickets.filter(assigned)) };
+  }).sort(compareClientAllocation) ?? [];
+  const waitingRows = data ? waitingAssignments(data.clients, data.tickets) : [];
   const clarifications = data?.tickets.filter((ticket) => statusKey(ticket.status) === "customer_clarification") ?? [];
   const outsideTickets = data?.tickets.filter((ticket) => outsideTeam(ticket, data.creatives) && !["canceled", "customer_clarification", "draft", "inactive"].includes(statusKey(ticket.status))).sort((a, b) => a.client.localeCompare(b.client, undefined, { sensitivity: "base" })) ?? [];
   const lastFetch = data?.fetched.filter((run) => run.source === "clients" || run.scope === "347").map((run) => run.fetchedAt).sort().at(-1);
@@ -155,10 +157,10 @@ export function Dashboard() {
                   {ticket.referenceOnly && <p className="mt-1 text-[10px] text-red-300">Reference only - excluded from workload{ticket.currentAssignee && ticket.currentAssignee !== ticket.assignee ? ` - Now: ${ticket.currentAssignee}` : ` - ${ticket.status}`}</p>}
                   <div className="mt-1.5 flex items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <button disabled={working || refreshing || !editable || canceled} onClick={() => updateTicketControl(ticket, "delivery")} className="rounded-md border border-lime/30 px-2 py-0.5 text-[10px] font-bold text-lime disabled:opacity-40">{status === "Delivered" ? "Undo Delivered" : "Mark Delivered"}</button>
+                      {ticket.referenceOnly ? <button disabled={working || refreshing} onClick={() => removeCreativeEntry(ticket, "restore")} className="rounded-md border border-blue/40 px-2 py-0.5 text-[10px] font-bold text-blue disabled:opacity-40">Add again</button> : <button disabled={working || refreshing || !editable || canceled} onClick={() => updateTicketControl(ticket, "delivery")} className="rounded-md border border-lime/30 px-2 py-0.5 text-[10px] font-bold text-lime disabled:opacity-40">{status === "Delivered" ? "Undo Delivered" : "Mark Delivered"}</button>}
                       <button disabled={working || refreshing} onClick={() => removeCreativeEntry(ticket)} className="rounded-md border border-red-400/30 px-2 py-0.5 text-[10px] font-bold text-red-300 disabled:opacity-40">Delete</button>
-                      <DesignTimeEditor ticket={ticket} day={day} disabled={working || refreshing || !editable} onBusy={setWorking} onSaved={setData} />
-                      <button aria-pressed={Boolean(ticket.noBandwidth)} disabled={working || refreshing || !editable} onClick={() => updateTicketControl(ticket, "bandwidth")} className={`rounded-md border border-red-400/40 px-2 py-0.5 text-[10px] font-bold text-red-300 disabled:opacity-40 ${ticket.noBandwidth ? "bg-red-400/20" : ""}`}>{ticket.noBandwidth ? "Restore BW" : "No BW"}</button>
+                      {!ticket.referenceOnly && <DesignTimeEditor ticket={ticket} day={day} disabled={working || refreshing || !editable} onBusy={setWorking} onSaved={setData} />}
+                      {!ticket.referenceOnly && <button aria-pressed={Boolean(ticket.noBandwidth)} disabled={working || refreshing || !editable} onClick={() => updateTicketControl(ticket, "bandwidth")} className={`rounded-md border border-red-400/40 px-2 py-0.5 text-[10px] font-bold text-red-300 disabled:opacity-40 ${ticket.noBandwidth ? "bg-red-400/20" : ""}`}>{ticket.noBandwidth ? "Restore BW" : "No BW"}</button>}
                     </div>
                     <span title={`Fetched status: ${ticket.status}`} className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${canceled ? "bg-red-400/15 text-red-300" : tag}`}>{canceled ? "Canceled" : status}</span>
                   </div>
@@ -179,9 +181,9 @@ export function Dashboard() {
         </table></div> : <p className="mt-3 text-sm text-muted">No tickets awaiting customer clarification.</p>}
       </section>
       <section className="rounded-xl border border-line bg-panel p-5">
-        <h2 className="text-lg font-semibold">Clients with no assigned DT</h2>
-        {unallocatedRows.length > 0 ? <div className="mt-3 overflow-x-auto"><div className="min-w-[420px]">
-          <div>{unallocatedRows.map(({ client, tickets }) => <details key={client.id} className="overflow-hidden border-t border-line">
+        <h2 className="text-lg font-semibold">Tickets waiting for assignment</h2>
+        {waitingRows.length > 0 ? <div className="mt-3 overflow-x-auto"><div className="min-w-[420px]">
+          <div>{waitingRows.map(({ client, tickets }) => <details key={client.id} className="overflow-hidden border-t border-line">
             <summary className="grid cursor-pointer list-none grid-cols-[35%_6rem_minmax(0,1fr)] items-center py-1.5 text-xs sm:text-sm">
               <QueueLink href={clientTicketsUrl(client.companyId || client.id)} className="truncate px-3 text-muted">{client.name}</QueueLink>
               <span className="px-3 text-muted tabular-nums">{new Set(tickets.map((ticket) => ticket.id)).size} tickets</span>
@@ -189,7 +191,7 @@ export function Dashboard() {
             </summary>
             <div className="space-y-1 px-3 pb-1.5 pt-1">{tickets.map((ticket) => <a className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3 text-sm text-blue hover:underline" href={ticket.url} key={ticket.entryId || ticket.id} target="_blank" rel="noopener noreferrer"><span className="font-mono text-xs">#{ticket.id}</span><span className="truncate" title={ticket.title}>{ticket.title}</span></a>)}</div>
           </details>)}</div>
-        </div></div> : <p className="mt-3 text-sm text-muted">No clients with queued tickets and zero assigned DT.</p>}
+        </div></div> : <p className="mt-3 text-sm text-muted">No tickets waiting for assignment.</p>}
       </section>
       <section className="overflow-hidden rounded-xl border border-line bg-panel">
         <h2 className="p-5 text-lg font-semibold">Tickets Outside My Team</h2>
@@ -208,7 +210,7 @@ export function Dashboard() {
           })}</tbody>
         </table></div> : <p className="px-5 pb-5 text-sm text-muted">No tickets assigned outside your team.</p>}
       </section>
-      <section className="overflow-hidden rounded-xl border border-line bg-panel"><h2 className="p-5 text-lg font-semibold">Daily client allocation</h2><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-inset text-muted"><tr>{["Client", "Daily status", "Subscription", "Assigned DT", "Completed DT", "Daily DT", "Available DT"].map((title) => <th key={title} className="px-5 py-3">{title}</th>)}</tr></thead><tbody>{clientRows.map(({ client, tickets, allocated, complete }) => {
+      <section className="overflow-hidden rounded-xl border border-line bg-panel"><h2 className="p-5 text-lg font-semibold">Daily client allocation</h2><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-inset text-muted"><tr>{["Client", "Last active", "Daily status", "Subscription", "Assigned DT", "Completed DT", "Daily DT", "Available DT"].map((title) => <th key={title} className="px-5 py-3">{title}</th>)}</tr></thead><tbody>{clientRows.map(({ client, tickets, allocated, complete, lastActiveDay }) => {
         const empty = tickets.length === 0;
         const maximized = !empty && client.dailyMinutes > 0 && allocated >= client.dailyMinutes;
         const fulfilled = !empty && client.dailyMinutes > 0 && complete >= client.dailyMinutes;
@@ -218,6 +220,7 @@ export function Dashboard() {
         const label = empty ? "No tickets today" : fulfilled ? "Daily DT completed" : maximized ? "Utilization maximized" : unassigned ? "No assigned DT" : "Partially assigned";
         return <tr key={client.id} className={`border-t border-line ${rowColor}`}>
           <td className="px-5 py-3"><QueueLink href={clientTicketsUrl(client.companyId || client.id)}>{client.name}</QueueLink></td>
+          <td className="whitespace-nowrap px-5 py-3 text-xs text-muted" title={lastActiveDay ? `Last recorded work: ${lastActiveDay}` : "No recorded work in saved history"}>{lastActiveLabel(lastActiveDay, day)}</td>
           <td className={`px-5 py-3 text-xs ${statusColor}`}>{label}</td>
           <td className="px-5 py-3 text-muted">{client.pc}</td>
           <td className={`px-5 py-3 ${empty ? "text-muted" : "text-blue"}`}>{signedTime(allocated)}</td>
