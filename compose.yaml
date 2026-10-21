@@ -10,6 +10,7 @@ services:
       # Local HTTP has no HTTPS proxy: validate against the request's own host.
       # Allows localhost and LAN access while still rejecting foreign origins.
       APP_ORIGIN: ""
+      PC_EOS_REPORT_WEBHOOK_URL: ${PC_EOS_REPORT_WEBHOOK_URL:-}
     volumes:
       - dp-ops-data:/app/data
     restart: unless-stopped

@@ -53,6 +53,14 @@ Client matching uses website company IDs when available, otherwise normalized na
 
 The client queue is constructed from the editable Clients DB. `DP_CLIENT_QUEUE_URL` is retained for standalone scraper callers; app client fetches always use the database registry. `DP_CREATIVE_QUEUE_URL` optionally supplies custom crew filters; the selected Team ID replaces its team filter. Generated crew filters use states 1–4, matching the provided Apps Script. All queues are restricted to `https://jar.designpickle.com/admin/tickets`.
 
+## Google Chat daily report
+
+Set `PC_EOS_REPORT_WEBHOOK_URL` privately in `.env.local` (or in Dokploy runtime environment settings), then restart/redeploy. Never commit the webhook URL. Compose also forwards this variable from its environment.
+
+The **PC report** button in the separated side-menu reports section sends today's saved tickets for **PC and PC AD accounts only**, grouped by client, under **T04 - PC Report**. Each row has a ticket emoji, linked ticket number and name, and status emoji and label. DT and assignees are omitted. Assigned tickets are excluded. Each client is ordered Delivered CR, Delivered WIP, In Progress, then Customer Clarification. Dashed dividers separate the report header from the first client and separate clients. A blank line precedes clarification tickets. It always reports today in Bogota, regardless of the page or date being viewed. Refresh queues first for current saved statuses. Retained and manual work are included, with one row per ticket using its latest daily cycle. Canceled, draft, and inactive tickets are excluded. Customer Clarification stays separate; Quality Review maps to In Progress; delivered Customer Review/Closed/Archived maps to Delivered CR and other completed work to Delivered WIP. Local overrides apply. Long reports split across messages. Check Chat before retrying after partial delivery.
+
+Formatting follows [Google Chat webhook markup](https://developers.google.com/workspace/chat/format-messages). Run `node scripts/check-chat-report.cjs` for isolated formatter and webhook checks without posting to Chat.
+
 ## Checks
 
 ```bash
