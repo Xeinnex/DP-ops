@@ -169,17 +169,6 @@ export function Dashboard() {
           </details></div>;
         })}</div>
       </section>
-      <section className="rounded-xl border border-blue/30 bg-panel p-5">
-        <h2 className="text-lg font-semibold">Customer clarification <span className="text-sm text-muted">({clarifications.length})</span></h2>
-        {clarifications.length ? <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[420px] table-fixed text-left text-xs sm:text-sm">
-          <colgroup><col className="w-[35%]" /><col className="w-24" /><col /></colgroup>
-          <tbody>{clarifications.map((ticket) => <tr key={ticket.entryId || ticket.id} className="border-t border-line">
-            <td className="truncate px-3 py-1.5 text-muted" title={ticket.client}><QueueLink href={ticket.clientId ? clientTicketsUrl(ticket.clientId) : undefined}>{ticket.client}</QueueLink></td>
-            <td className="px-3 py-1.5 font-mono text-xs text-blue"><a href={ticket.url} target="_blank" rel="noopener noreferrer" className="hover:underline">#{ticket.id}</a></td>
-            <td className="truncate px-3 py-1.5 text-blue" title={ticket.title}><a href={ticket.url} target="_blank" rel="noopener noreferrer" className="hover:underline">{ticket.title}</a></td>
-          </tr>)}</tbody>
-        </table></div> : <p className="mt-3 text-sm text-muted">No tickets awaiting customer clarification.</p>}
-      </section>
       <section className="rounded-xl border border-line bg-panel p-5">
         <h2 className="text-lg font-semibold">Tickets waiting for assignment</h2>
         {waitingRows.length > 0 ? <div className="mt-3 overflow-x-auto"><div className="min-w-[420px]">
@@ -192,6 +181,17 @@ export function Dashboard() {
             <div className="space-y-1 px-3 pb-1.5 pt-1">{tickets.map((ticket) => <a className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3 text-sm text-blue hover:underline" href={ticket.url} key={ticket.entryId || ticket.id} target="_blank" rel="noopener noreferrer"><span className="font-mono text-xs">#{ticket.id}</span><span className="truncate" title={ticket.title}>{ticket.title}</span></a>)}</div>
           </details>)}</div>
         </div></div> : <p className="mt-3 text-sm text-muted">No tickets waiting for assignment.</p>}
+      </section>
+      <section className="rounded-xl border border-blue/30 bg-panel p-5">
+        <h2 className="text-lg font-semibold">Customer clarification <span className="text-sm text-muted">({clarifications.length})</span></h2>
+        {clarifications.length ? <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[420px] table-fixed text-left text-xs sm:text-sm">
+          <colgroup><col className="w-[35%]" /><col className="w-24" /><col /></colgroup>
+          <tbody>{clarifications.map((ticket) => <tr key={ticket.entryId || ticket.id} className="border-t border-line">
+            <td className="truncate px-3 py-1.5 text-muted" title={ticket.client}><QueueLink href={ticket.clientId ? clientTicketsUrl(ticket.clientId) : undefined}>{ticket.client}</QueueLink></td>
+            <td className="px-3 py-1.5 font-mono text-xs text-blue"><a href={ticket.url} target="_blank" rel="noopener noreferrer" className="hover:underline">#{ticket.id}</a></td>
+            <td className="truncate px-3 py-1.5 text-blue" title={ticket.title}><a href={ticket.url} target="_blank" rel="noopener noreferrer" className="hover:underline">{ticket.title}</a></td>
+          </tr>)}</tbody>
+        </table></div> : <p className="mt-3 text-sm text-muted">No tickets awaiting customer clarification.</p>}
       </section>
       <section className="overflow-hidden rounded-xl border border-line bg-panel">
         <h2 className="p-5 text-lg font-semibold">Tickets Outside My Team</h2>
