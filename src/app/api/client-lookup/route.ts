@@ -1,8 +1,9 @@
+import { withTeam } from "@/lib/team-context";
 import { allowedRequestOrigin } from "@/lib/request-origin";
 import { companyIdFromQueue, clientNameFromQueue } from "@/lib/client-lookup";
 import { clientTicketsUrl } from "@/lib/queue-links";
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   if (!allowedRequestOrigin(request)) return Response.json({ error: "Request origin is not allowed." }, { status: 403 });
   try {
     const body = await request.json();
@@ -17,3 +18,5 @@ export async function POST(request: Request) {
     return Response.json({ companyId, name });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Client lookup failed." }, { status: 400 }); }
 }
+
+export const POST = withTeam(handlePOST);

@@ -1,11 +1,12 @@
+import { withTeam } from "@/lib/team-context";
 import { allowedRequestOrigin } from "@/lib/request-origin";
 import { db, registry } from "@/lib/database";
 import { normalizeName } from "@/lib/daily";
 import { connection } from "next/server";
 
-export async function GET() { await connection(); return Response.json(registry(), { headers: { "Cache-Control": "no-store" } }); }
+async function handleGET() { await connection(); return Response.json(registry(), { headers: { "Cache-Control": "no-store" } }); }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   if (!allowedRequestOrigin(request)) return Response.json({ error: "Request origin is not allowed." }, { status: 403 });
   try {
     const body = await request.json();
@@ -33,3 +34,7 @@ export async function POST(request: Request) {
     return Response.json(registry());
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Unable to save record." }, { status: 400 }); }
 }
+
+export const GET = withTeam(handleGET);
+
+export const POST = withTeam(handlePOST);

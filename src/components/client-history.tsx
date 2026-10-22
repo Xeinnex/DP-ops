@@ -1,4 +1,5 @@
 "use client";
+import { teamFetch } from "@/lib/team-fetch";
 
 import { useEffect, useRef, useState } from "react";
 import type { ClientRecord } from "@/types/operations";
@@ -19,7 +20,7 @@ export function ClientHistory({ client, onClose }: { client: ClientRecord; onClo
   }, []);
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`/api/client-history?clientId=${encodeURIComponent(client.id)}&page=${page}`, { signal: controller.signal }).then(async response => {
+    teamFetch(`/api/client-history?clientId=${encodeURIComponent(client.id)}&page=${page}`, { signal: controller.signal }).then(async response => {
       const body = await response.json(); if (!response.ok) throw new Error(body.error); setHistory(body); setError("");
     }).catch(error => { if (error.name !== "AbortError") setError(error.message); });
     return () => controller.abort();

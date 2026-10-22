@@ -1,4 +1,5 @@
 "use client";
+import { teamFetch } from "@/lib/team-fetch";
 
 import { useEffect, useState } from "react";
 import type { DailyData } from "@/types/operations";
@@ -33,7 +34,7 @@ export function Dashboard() {
     if (action === "delete" && !window.confirm("Remove this card from this creative daily dashboard? Raw ticket history is kept.")) return;
     setWorking(true); setError("");
     try {
-      const response = await fetch("/api/creative-entry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ day, entryId: ticket.entryId, assignee: ticket.assignee, action }) });
+      const response = await teamFetch("/api/creative-entry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ day, entryId: ticket.entryId, assignee: ticket.assignee, action }) });
       const body = await response.json(); if (!response.ok) throw new Error(body.error); setData(body);
     } catch (error) { setError(error instanceof Error ? error.message : "Unable to remove card."); }
     finally { setWorking(false); }
@@ -42,7 +43,7 @@ export function Dashboard() {
   async function updateOutsideStatus(ticket: Ticket, status: OutsideStatus | null) {
     setWorking(true); setError("");
     try {
-      const response = await fetch("/api/outside-status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ day, entryId: ticket.entryId, status }) });
+      const response = await teamFetch("/api/outside-status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ day, entryId: ticket.entryId, status }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error);
       setData(body);
@@ -53,7 +54,7 @@ export function Dashboard() {
   async function updateAvailability(creativeId: string, availability: CreativeAvailability) {
     setWorking(true); setError("");
     try {
-      const response = await fetch("/api/availability", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ creativeId, availability }) });
+      const response = await teamFetch("/api/availability", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ creativeId, availability }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error);
       setData(body); setDay(body.day);
@@ -64,14 +65,14 @@ export function Dashboard() {
   async function refreshBoth() {
     setRefreshing(true); setError(""); setProgress("Refreshing queues and checking missing statuses…");
     try {
-      const response = await fetch("/api/refresh", { method: "POST" });
+      const response = await teamFetch("/api/refresh", { method: "POST" });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error);
       setData(body.data);
       setProgress(body.warnings.length ? body.warnings.join(" ") : "Queues updated.");
     } catch (error) {
       setError(error instanceof Error ? error.message : "Refresh failed."); setProgress("");
-      const response = await fetch(`/api/dashboard?day=${day}`).catch(() => null);
+      const response = await teamFetch(`/api/dashboard?day=${day}`).catch(() => null);
       if (response?.ok) setData(await response.json());
     } finally { setRefreshing(false); }
   }
@@ -81,7 +82,7 @@ export function Dashboard() {
     try {
       const enabled = action === "delivery" ? simplifiedStatus(ticket) !== "Delivered" : !ticket.noBandwidth;
       const body = { day, entryId: ticket.entryId, action, enabled };
-      const response = await fetch("/api/ticket-control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const response = await teamFetch("/api/ticket-control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const result = await response.json(); if (!response.ok) throw new Error(result.error); setData(result);
     } catch (error) { setError(error instanceof Error ? error.message : "Unable to update work."); }
     finally { setWorking(false); }
@@ -89,7 +90,7 @@ export function Dashboard() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`/api/dashboard?day=${day}`, { signal: controller.signal }).then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error); setData(body); setError(""); }).catch((error) => { if (error.name !== "AbortError") setError(error.message); });
+    teamFetch(`/api/dashboard?day=${day}`, { signal: controller.signal }).then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error); setData(body); setError(""); }).catch((error) => { if (error.name !== "AbortError") setError(error.message); });
     return () => controller.abort();
   }, [day]);
 
@@ -103,7 +104,7 @@ export function Dashboard() {
   const waitingRows = data ? waitingAssignments(data.clients, data.tickets) : [];
   const clarifications = data?.tickets.filter((ticket) => statusKey(ticket.status) === "customer_clarification") ?? [];
   const outsideTickets = data?.tickets.filter((ticket) => outsideTeam(ticket, data.creatives) && !["canceled", "customer_clarification", "draft", "inactive"].includes(statusKey(ticket.status))).sort((a, b) => a.client.localeCompare(b.client, undefined, { sensitivity: "base" })) ?? [];
-  const lastFetch = data?.fetched.filter((run) => run.source === "clients" || run.scope === "347").map((run) => run.fetchedAt).sort().at(-1);
+  const lastFetch = data?.fetched.filter((run) => run.source === "clients" || run.source === "creatives").map((run) => run.fetchedAt).sort().at(-1);
 
   return <div className="space-y-5">
     <header className="flex flex-wrap items-center justify-between gap-4 border-b border-line pb-5">

@@ -1,3 +1,5 @@
+import { activeTeam, savedTeamScope } from "@/lib/team-context";
+import { t09Clients } from "@/data/t09-clients";
 import "server-only";
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
@@ -14,16 +16,19 @@ import { creativeWork } from "@/lib/creative-work";
 import { outsideTeam, outsideStatuses, type OutsideStatus } from "@/lib/outside-tickets";
 import { historyCutoff } from "@/lib/history-retention";
 
-let connection: Database.Database | undefined;
-const databaseCache = globalThis as typeof globalThis & { dpDatabase?: Database.Database; dpDatabaseSchema?: number };
-const databaseSchema = 5;
+const databaseCache = globalThis as typeof globalThis & { dpDatabase?: Database.Database; dpDatabaseSchema?: number; dpTeamDatabases?: Map<string, Database.Database> };
+const databaseSchema = 6;
+const teamDatabases = databaseCache.dpTeamDatabases ??= new Map<string, Database.Database>();
 
 export function db() {
-  if (connection?.open && databaseCache.dpDatabaseSchema === databaseSchema) { maintainLogs(connection); return connection; }
-  if (databaseCache.dpDatabase?.open && databaseCache.dpDatabaseSchema === databaseSchema) { connection = databaseCache.dpDatabase; maintainLogs(connection); return connection; }
-  const filename = resolve(/* turbopackIgnore: true */ process.env.DP_DB_PATH || "data/dp-ops.sqlite");
+  const team = activeTeam();
+  const base = resolve(/* turbopackIgnore: true */ process.env.DP_DB_PATH || "data/dp-ops.sqlite");
+  const filename = team.code === "T04" ? base : base + "." + team.code + ".sqlite";
+  const cached = teamDatabases.get(filename);
+  if (cached?.open && databaseCache.dpDatabaseSchema === databaseSchema) { maintainLogs(cached); return cached; }
   mkdirSync(dirname(filename), { recursive: true });
-  connection = databaseCache.dpDatabase?.open ? databaseCache.dpDatabase : new Database(filename);
+  // T04 keeps its existing file; no history is copied to new teams.
+  const connection = cached?.open ? cached : new Database(filename);
   connection.pragma("journal_mode = WAL");
   connection.pragma("busy_timeout = 5000");
   connection.exec(`
@@ -55,14 +60,15 @@ export function db() {
     connection.transaction(() => {
       const clientInsert = connection!.prepare("INSERT INTO clients(id,name,dailyMinutes,pc) VALUES (@id,@name,@dailyMinutes,@pc)");
       const hours: Record<string, number> = { "104329": 8, "84083": 8, "19155": 6, "7789": 1, "12925": 1, "91457": 33, "19001": 1, "78615": 14, "89744": 3, "94907": 3 };
-      for (const client of seedClients) clientInsert.run({ ...client, dailyMinutes: (hours[client.id] ?? 2) * 60, pc: ["104329", "84083", "91457", "78615"].includes(client.id) ? "PC AD" : client.id === "19155" ? "PC" : "NO PC" });
+      for (const client of team.code === "T04" ? seedClients : team.code === "T09" ? t09Clients.map((client) => ({ id: client.companyId, name: client.name })) : []) clientInsert.run({ ...client, dailyMinutes: team.code === "T04" ? (hours[client.id] ?? 2) * 60 : 120, pc: team.code === "T09" ? t09Clients.find((entry) => entry.name === client.name)!.pc : ["104329", "84083", "91457", "78615"].includes(client.id) ? "PC AD" : client.id === "19155" ? "PC" : "NO PC" });
       const scopes: Record<string, string[]> = { Ailen: ["GD", "PD", "FIG"], Diana: ["GD"], Edgar: ["GD", "PD"], Faisal: ["GD"], Haqqy: ["CI", "GD"], Juanes: ["MG"], Andrew: ["VE"], Nacho: ["GD"] };
       const creativeInsert = connection!.prepare("INSERT INTO creatives(id,name,alias,scopes,capacityMinutes,designerId) VALUES (@id,@name,@alias,@scopes,@capacityMinutes,@designerId)");
-      for (const creative of seedCreatives) creativeInsert.run({ ...creative, designerId: creative.designerId ?? null, id: creative.alias.toLowerCase(), scopes: JSON.stringify(scopes[creative.alias]), capacityMinutes: 405 });
+      for (const creative of team.code === "T04" ? seedCreatives : []) creativeInsert.run({ ...creative, designerId: creative.designerId ?? null, id: creative.alias.toLowerCase(), scopes: JSON.stringify(scopes[creative.alias]), capacityMinutes: 405 });
       connection!.prepare("INSERT INTO settings VALUES ('seeded','1')").run();
     })();
   }
   if (addedDesignerId) connection.prepare("UPDATE creatives SET designerId='5371' WHERE alias='Edgar' AND name='Edgar Jean-Pierre Torres Chamorro'").run();
+  teamDatabases.set(filename, connection);
   databaseCache.dpDatabase = connection;
   databaseCache.dpDatabaseSchema = databaseSchema;
   maintainLogs(connection);
@@ -103,15 +109,15 @@ export function saveFetch(result: TicketResult, source: string, scope: string, d
 
 export function savedTickets(source: string, scope: string, day = today()): TicketResult | null {
   const run = db().prepare("SELECT * FROM fetch_runs WHERE day=? AND source=? AND scope=? ORDER BY id DESC LIMIT 1").get(day, source, scope) as { fetchedAt: string; pages: number; payload: string } | undefined;
-  const manual = dailyTickets(day, source === "creatives" ? scope : "347").filter((ticket) => ticket.manuallyAdded);
+  const manual = dailyTickets(day, source === "creatives" ? scope : savedTeamScope()).filter((ticket) => ticket.manuallyAdded);
   if (!run) return manual.length ? { tickets: manual, fetchedAt: (db().prepare("SELECT MAX(fetchedAt) AS at FROM fetch_runs WHERE day=? AND source='manual'").get(day) as { at: string }).at, pagesFetched: 0, warnings: [] } : null;
   const rows = db().prepare("SELECT ticketId,active FROM queue_snapshots WHERE day=? AND source=? AND scope=?").all(day, source, scope) as { ticketId: string; active: number }[];
-  const latest = dailyTickets(day, source === "creatives" ? scope : "347");
+  const latest = dailyTickets(day, source === "creatives" ? scope : savedTeamScope());
   const tickets = rows.flatMap((row) => latest.filter((ticket) => ticket.id === row.ticketId).map((ticket) => ({ ...ticket, sources: Array.from(new Set([...ticket.sources, source as "clients" | "creatives"])), retained: !row.active })));
   return { tickets: [...tickets, ...manual.filter((entry) => !tickets.some((ticket) => ticket.entryId === entry.entryId))], fetchedAt: run.fetchedAt, pagesFetched: run.pages, warnings: JSON.parse(run.payload).warnings };
 }
 
-function dailyTickets(day: string, teamId = "347", references?: Ticket[], includeExcluded = false) {
+function dailyTickets(day: string, teamId = savedTeamScope(), references?: Ticket[], includeExcluded = false) {
   // Replay immutable observations, including pre-upgrade history; revisions get separate daily entry IDs.
   const runs = db().prepare("SELECT payload,fetchedAt,id FROM fetch_runs WHERE day=? AND (source IN ('clients','manual') OR scope=?) ORDER BY id").all(day, teamId) as { payload: string; fetchedAt: string; id: number }[];
   const observations = runs.flatMap((run) => (JSON.parse(run.payload) as TicketResult).tickets.map((ticket) => ({ ticket, at: run.fetchedAt, order: run.id })));
@@ -203,7 +209,7 @@ export function dailyData(day = today()): DailyData {
   const fetched = db().prepare("SELECT source,scope,MAX(fetchedAt) AS fetchedAt FROM fetch_runs WHERE day=? GROUP BY source,scope").all(day) as DailyData["fetched"];
   const legacyWorked = (db().prepare("SELECT payload FROM worked_tickets WHERE day=?").all(day) as { payload: string }[]).map((row) => ({ ...JSON.parse(row.payload), worked: true } as Ticket));
   const references: Ticket[] = [];
-  const tickets = dailyTickets(day, "347", references);
+  const tickets = dailyTickets(day, savedTeamScope(), references);
   const hidden = db().prepare("SELECT entryId,assignee FROM hidden_creative_entries WHERE day=?").all(day) as { entryId: string; assignee: string }[];
   const isHidden = (ticket: Ticket) => hidden.some((row) => row.entryId === ticket.entryId && row.assignee === ticket.assignee);
   const workedTickets = [...new Map([...legacyWorked, ...references].map((ticket) => [`${ticket.entryId || `${ticket.id}:1`}\0${ticket.assignee}`, ticket])).values()].map((ticket) => {
@@ -262,7 +268,7 @@ export function clientHistory(clientId: string, page = 1) {
   const entries: (Ticket & { day: string })[] = [];
   for (const [day, observed] of raw) {
     const references: Ticket[] = [];
-    const daily = dailyTickets(day, "347", references, true).filter(matches);
+    const daily = dailyTickets(day, savedTeamScope(), references, true).filter(matches);
     const history = new Map<string, Ticket>();
     for (const ticket of [...references.filter(matches), ...daily]) history.set(`${ticket.entryId}\0${ticket.assignee}`, ticket);
     // Draft/Inactive first observations are deliberately excluded from workload,

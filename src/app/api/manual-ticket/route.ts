@@ -1,9 +1,10 @@
+import { withTeam } from "@/lib/team-context";
 import { allowedRequestOrigin } from "@/lib/request-origin";
 import { addManualTicket, registry } from "@/lib/database";
 import { fetchTicketDetail } from "@/lib/ticket-scraper";
 import { manualStatuses, ticketIdFromUrl } from "@/lib/manual-ticket";
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   if (!allowedRequestOrigin(request)) return Response.json({ error: "Request origin is not allowed." }, { status: 403 });
   try {
     const body = await request.json();
@@ -17,3 +18,5 @@ export async function POST(request: Request) {
     return Response.json(addManualTicket({ id, client: client?.name || detail.client, clientId: detail.clientId, title: detail.title, assignee: creative!.name, status: body.status, designTime: body.designTime, position: null, timeSpentMinutes: null, url: `https://jar.designpickle.com/admin/tickets/${id}`, sources: ["clients", "creatives"] }));
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Unable to add ticket." }, { status: 400 }); }
 }
+
+export const POST = withTeam(handlePOST);

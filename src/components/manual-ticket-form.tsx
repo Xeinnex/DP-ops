@@ -1,4 +1,5 @@
 "use client";
+import { teamFetch } from "@/lib/team-fetch";
 
 import { useState, type FormEvent } from "react";
 import type { DailyData } from "@/types/operations";
@@ -17,7 +18,7 @@ export function ManualTicketForm({ creatives, onSaved, onCancel }: { creatives: 
   async function submit(action: "lookup" | "add") {
     setBusy(true); setError("");
     try {
-      const response = await fetch("/api/manual-ticket", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, url, creativeId, designTime, status }) });
+      const response = await teamFetch("/api/manual-ticket", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, url, creativeId, designTime, status }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error);
       if (action === "add") onSaved(body);

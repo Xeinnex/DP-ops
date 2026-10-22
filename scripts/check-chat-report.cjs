@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const ts = require("typescript");
 function load(file, dependencies = {}, globals = {}) {
+  dependencies = { "@/lib/team-context": { withTeam: handler => handler, activeTeam: () => ({ code: "T04" }) }, ...dependencies };
   const exports = {};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports, require: id => Object.hasOwn(dependencies, id) ? dependencies[id] : require(id), Buffer, URL, AbortSignal, setTimeout, process: { env: {} }, ...globals });
   return exports;

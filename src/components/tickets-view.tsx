@@ -1,7 +1,8 @@
 "use client";
+import { teamFetch } from "@/lib/team-fetch";
 
 import { useState, useEffect } from "react";
-import { defaultTeam } from "@/data/team";
+import { useTeam } from "@/components/team-switcher";
 import { normalizeName } from "@/lib/daily";
 import type { Registry } from "@/types/operations";
 import type { TicketResult } from "@/types/ticket";
@@ -15,8 +16,9 @@ import { clientTicketsUrl, creativeTicketsUrl } from "@/lib/queue-links";
 const totalDesignTime = (tickets: Ticket[]) => formatDesignTime(tickets.reduce((sum, ticket) => sum + countedMinutes(ticket), 0));
 
 export function TicketsView({ source = "clients" }: { source?: "clients" | "creatives" }) {
+  const team = useTeam();
   const isCrew = source === "creatives";
-  const [teamId, setTeamId] = useState(defaultTeam.id);
+  const [teamId] = useState(team.queueId || "");
   const [fetchedTeamId, setFetchedTeamId] = useState("");
   const [result, setResult] = useState<TicketResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -42,7 +44,7 @@ export function TicketsView({ source = "clients" }: { source?: "clients" | "crea
     const controller = new AbortController();
     const query = new URLSearchParams({ source });
     if (isCrew) query.set("teamId", teamId);
-    Promise.all([fetch("/api/registry", { signal: controller.signal }).then((response) => response.json()), fetch(`/api/tickets?${query}`, { signal: controller.signal }).then((response) => response.json())]).then(([registry, saved]) => {
+    Promise.all([teamFetch("/api/registry", { signal: controller.signal }).then((response) => response.json()), teamFetch(`/api/tickets?${query}`, { signal: controller.signal }).then((response) => response.json())]).then(([registry, saved]) => {
       if (saved?.error) throw new Error(saved.error);
       setRecords(registry); setResult(saved); setFetchedTeamId(teamId); setError("");
     }).catch((error) => { if (error.name !== "AbortError") setError("Unable to load saved queues: " + error.message); });
@@ -65,7 +67,7 @@ export function TicketsView({ source = "clients" }: { source?: "clients" | "crea
       if (isCrew && !/^\d+$/.test(teamId)) throw new Error("Team ID must contain digits only.");
       const query = new URLSearchParams({ source });
       if (isCrew) query.set("teamId", teamId);
-      const response = await fetch(`/api/tickets?${query}`, { method: "POST" });
+      const response = await teamFetch(`/api/tickets?${query}`, { method: "POST" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Unable to fetch tickets.");
       setResult(data);
@@ -90,7 +92,7 @@ export function TicketsView({ source = "clients" }: { source?: "clients" | "crea
       <div><PageHeading title={isCrew ? "Creative tickets" : "Client tickets"} updated={result ? `Updated ${new Date(result.fetchedAt).toLocaleTimeString()}` : "No saved activity"} /><p className="mt-3 text-sm text-muted">{isCrew ? "Your team queue, grouped by creative." : `Active queues across ${clients.length} configured clients.`}</p></div>
       <button disabled={loading} onClick={refresh} className="rounded-xl bg-lime px-5 py-3 text-sm font-semibold text-inset hover:bg-lime/85 disabled:cursor-wait disabled:opacity-60">{loading ? "Fetching queues…" : result ? "Refresh tickets ↻" : "Fetch tickets ↗"}</button>
     </div>
-    {isCrew && <div className="mt-6 flex flex-wrap items-center gap-4 rounded-xl border border-line bg-panel p-5"><label className="text-sm text-muted">{defaultTeam.name} · Team ID<input inputMode="numeric" value={teamId} onChange={(event) => setTeamId(event.target.value)} disabled={loading} className="ml-3 w-24 rounded-lg border border-line bg-inset px-3 py-2 text-ink" /></label><p className="text-xs text-muted">Default 347. Change the ID, then fetch to inspect another team.{result && ` Current results: team ${fetchedTeamId}.`}</p></div>}
+    {isCrew && <div className="mt-6 flex flex-wrap items-center gap-4 rounded-xl border border-line bg-panel p-5"><label className="text-sm text-muted">{team.name} · Team ID<input inputMode="numeric" value={teamId} readOnly disabled={loading} className="ml-3 w-24 rounded-lg border border-line bg-inset px-3 py-2 text-ink" /></label><p className="text-xs text-muted">Queues belong to the selected workspace.{result && ` Current results: team ${fetchedTeamId}.`}</p></div>}
     <div aria-live="polite" className="mt-5 space-y-2">
       {loading && <p className="text-sm text-muted">Reading all queue pages. Larger queues may take a few minutes.</p>}
       {error && <p role="alert" className="rounded-xl border border-red-400/30 bg-red-400/10 p-4 text-sm text-red-200">{error}{result && " The table still shows the previous successful fetch."}</p>}

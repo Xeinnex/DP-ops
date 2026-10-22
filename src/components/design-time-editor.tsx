@@ -1,4 +1,5 @@
 "use client";
+import { teamFetch } from "@/lib/team-fetch";
 
 import { useState, type FormEvent } from "react";
 import type { Ticket } from "@/types/ticket";
@@ -11,7 +12,7 @@ export function DesignTimeEditor({ ticket, day, disabled, onBusy, onSaved }: { t
   async function save(event: FormEvent) {
     event.preventDefault(); onBusy(true); setError("");
     try {
-      const response = await fetch("/api/design-time", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ day, entryId: ticket.entryId, designTime: value }) });
+      const response = await teamFetch("/api/design-time", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ day, entryId: ticket.entryId, designTime: value }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error);
       onSaved(body); setEditing(false);

@@ -18,7 +18,7 @@ function plain(value: string) {
   return value.replace(/[<>|*_~`]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-export function buildChatReport(data: DailyData) {
+export function buildChatReport(data: DailyData, teamCode = "T04") {
   const latest = new Map<string, Ticket>();
   // Current daily entries supersede legacy saved work; later cycles supersede earlier ones.
   for (const ticket of [...data.workedTickets, ...data.tickets].sort((a, b) => (a.occurrence ?? 1) - (b.occurrence ?? 1))) latest.set(ticket.id, ticket);
@@ -35,7 +35,7 @@ export function buildChatReport(data: DailyData) {
   }
   const groups = [...grouped.values()].sort((a, b) => a.name.localeCompare(b.name));
   const count = groups.reduce((sum, group) => sum + group.tickets.length, 0);
-  const header = `*T04 - PC Report*\n📅 ${data.day} · ${count} tickets · ${groups.length} clients`;
+  const header = `*${plain(teamCode)} - PC Report*\n📅 ${data.day} · ${count} tickets · ${groups.length} clients`;
   // Stay comfortably below Chat's 32 KB message limit, including Unicode text.
   const limit = 28000;
   const messages: string[] = [];

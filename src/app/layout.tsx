@@ -1,3 +1,6 @@
+import { cookies } from "next/headers";
+import { findTeam, teams } from "@/data/teams";
+import { Suspense, type ReactNode } from "react";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
@@ -21,6 +24,11 @@ export const metadata: Metadata = {
   icons: { shortcut: "/favicon.ico" },
 };
 
+async function TeamWorkspace({ children }: { children: ReactNode }) {
+  const team = findTeam((await cookies()).get("dp-team")?.value ?? "T04") ?? teams[0];
+  return <><meta name="dp-team" content={team.code} /><WorkspaceShell team={team} version={version.split(".").slice(0, 2).join(".")}>{children}</WorkspaceShell></>;
+}
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
@@ -28,7 +36,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-screen bg-canvas text-ink">
-        <WorkspaceShell version={version.split(".").slice(0, 2).join(".")}>{children}</WorkspaceShell>
+        <Suspense fallback={<p className="p-6 text-muted">Loading workspace…</p>}><TeamWorkspace>{children}</TeamWorkspace></Suspense>
       </body>
     </html>
   );

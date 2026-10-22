@@ -5,6 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const ts = require("typescript");
 function load(file, dependencies = {}, sharedGlobals = {}) {
+  dependencies = { "@/lib/team-context": { withTeam: handler => handler, activeTeam: () => ({ code: "T04" }), savedTeamScope: () => "347" }, "@/data/t09-clients": { t09Clients: [] }, ...dependencies };
   dependencies = { "@/lib/request-origin": file.endsWith("request-origin.ts") ? {} : load("src/lib/request-origin.ts"), ...dependencies };
   const exports = {};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, { exports, require: (id) => id in dependencies ? dependencies[id] : require(id), process, Map, Set, Intl, Date, Request, Response, URL, globalThis: sharedGlobals });

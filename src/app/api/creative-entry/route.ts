@@ -1,8 +1,9 @@
+import { withTeam } from "@/lib/team-context";
 import { allowedRequestOrigin } from "@/lib/request-origin";
 import { dailyData, hideCreativeEntry, restoreCreativeEntry } from "@/lib/database";
 import { validDay } from "@/lib/daily";
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   if (!allowedRequestOrigin(request)) return Response.json({ error: "Request origin is not allowed." }, { status: 403 });
   try {
     const body = await request.json();
@@ -13,3 +14,5 @@ export async function POST(request: Request) {
     return Response.json(dailyData(body.day));
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Unable to remove creative entry." }, { status: 400 }); }
 }
+
+export const POST = withTeam(handlePOST);

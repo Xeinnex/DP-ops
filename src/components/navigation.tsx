@@ -1,4 +1,5 @@
 "use client";
+import { teamFetch } from "@/lib/team-fetch";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
@@ -13,7 +14,7 @@ export function Navigation() {
   async function sendPcReport() {
     setReporting(true); setReportResult(""); setReportError("");
     try {
-      const response = await fetch("/api/report", { method: "POST" });
+      const response = await teamFetch("/api/report", { method: "POST" });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Unable to send PC report.");
       setReportResult(`Sent to Google Chat: ${result.ticketCount} tickets, ${result.clientCount} clients.`);

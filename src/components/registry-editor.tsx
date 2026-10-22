@@ -1,4 +1,5 @@
 "use client";
+import { teamFetch } from "@/lib/team-fetch";
 import { useEffect, useState } from "react";
 import type { Registry, ClientRecord, CreativeRecord } from "@/types/operations";
 import { signedTime } from "@/lib/daily";
@@ -24,7 +25,7 @@ export function RegistryEditor({ kind }: { kind: "clients" | "creatives" }) {
   const [scopes, setScopes] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { fetch("/api/registry").then((response) => response.json()).then(setData).catch(() => setError("Unable to load records.")); }, []);
+  useEffect(() => { teamFetch("/api/registry").then((response) => response.json()).then(setData).catch(() => setError("Unable to load records.")); }, []);
   function edit(record?: ClientRecord | CreativeRecord) {
     setQueueUrl(""); setExisting(Boolean(record)); setEditing(true); setError("");
     setId(record?.id || ""); setName(record?.name || "");
@@ -36,7 +37,7 @@ export function RegistryEditor({ kind }: { kind: "clients" | "creatives" }) {
   async function lookupClient() {
     setLookingUp(true); setError("");
     try {
-      const response = await fetch("/api/client-lookup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: queueUrl }) });
+      const response = await teamFetch("/api/client-lookup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: queueUrl }) });
       const body = await response.json(); if (!response.ok) throw new Error(body.error);
       setQueueId(body.companyId); setName(body.name);
     } catch (error) { setError(error instanceof Error ? error.message : "Client lookup failed."); }
@@ -45,7 +46,7 @@ export function RegistryEditor({ kind }: { kind: "clients" | "creatives" }) {
   async function mutate(body: object) {
     setBusy(true); setError("");
     try {
-      const response = await fetch("/api/registry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const response = await teamFetch("/api/registry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const result = await response.json(); if (!response.ok) throw new Error(result.error);
       setData(result); setEditing(false);
     } catch (error) { setError(error instanceof Error ? error.message : "Save failed."); }

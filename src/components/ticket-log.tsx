@@ -1,4 +1,5 @@
 "use client";
+import { teamFetch } from "@/lib/team-fetch";
 import { useEffect, useState } from "react";
 import { PageHeading } from "@/components/page-heading";
 import { today } from "@/lib/daily";
@@ -23,7 +24,7 @@ export function TicketLog() {
   useEffect(() => {
     const controller = new AbortController();
     const params = new URLSearchParams({ day, ticketId: ticketId.replace(/^#/, ""), page: String(page) });
-    fetch(`/api/ticket-log?${params}`, { signal: controller.signal }).then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error); setHistory(body); setError(""); }).catch((error) => { if (error.name !== "AbortError") setError(error.message); });
+    teamFetch(`/api/ticket-log?${params}`, { signal: controller.signal }).then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error); setHistory(body); setError(""); }).catch((error) => { if (error.name !== "AbortError") setError(error.message); });
     return () => controller.abort();
   }, [day, ticketId, page]);
   return <div className="dashboard-controls space-y-6"><div><PageHeading title="Ticket log" /><p className="mt-3 text-muted">Raw saved observations, newest first. Expand a fetch to inspect exactly what was returned.</p></div><div className="flex flex-wrap gap-4 rounded-xl border border-line bg-panel p-5"><label className="text-sm text-muted">Activity date<input type="date" value={day} onChange={(event) => { if (event.target.value) { setDay(event.target.value); setPage(1); } }} className="ml-3 rounded-lg border border-line bg-inset p-2 text-ink" /></label><label className="text-sm text-muted">Ticket ID<input value={ticketId} onChange={(event) => { setTicketId(event.target.value); setPage(1); }} placeholder="All tickets" className="ml-3 rounded-lg border border-line bg-inset p-2 text-ink" /></label></div>

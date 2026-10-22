@@ -14,7 +14,7 @@ Open http://localhost:3000 for the dashboard. Keep the application bound to loca
 ## Queues and persistence
 
 - `/tickets`: client tickets grouped by client, with DT subtotals and badges for assignments outside the configured team.
-- `/creative-tickets`: creative tickets grouped by alias. Team 04 ID 347 is the default; change the Team ID to inspect other teams.
+- `/creative-tickets`: creative tickets grouped by alias for the selected team.
 - `/clients`: editable Clients DB, including company ID, name, daily DT and PC subscription.
 - `/creatives`: editable Creatives DB, including website name, alias, scopes and daily bandwidth.
 - `/dashboard`: date-selectable daily dashboard; also available at `/`.
@@ -22,13 +22,17 @@ Open http://localhost:3000 for the dashboard. Keep the application bound to loca
 
 SQLite lives in ignored `data/dp-ops.sqlite`. `DP_DB_PATH` can override the location. The client and creative constants are first-run seeds only; deleting or editing records in the site persists and does not reseed on restart. All supplied subscription hours and PC labels are seeded. Default creative capacity is 405 minutes (6:45), with the supplied scopes.
 
-Ticket tabs automatically load today's saved queue. Only **Fetch/Refresh tickets** or the dashboard's **Refresh both queues** contacts the source website. The dashboard refreshes clients and then Team 347 sequentially; if one fails, already saved results remain and the error identifies the failed source. Refresh is available for today only. The scraper must still read every page to discover updated assignments/DT/statuses; there is no incremental endpoint available. Saving deduplicates IDs within each source/team/day and records each successful fetch. A failed scrape leaves the previous saved queue intact.
+Use the sidebar team selector to switch between T04 (JAR ID 347) and T09 (JAR ID 41). T04 retains its existing SQLite file. T09 uses `data/dp-ops.sqlite.T09.sqlite` (or `${DP_DB_PATH}.T09.sqlite`), in the same persistent Docker volume. Registries, availability, queues, manual entries, edits, and history are isolated by database. Requests remain pinned to the team displayed in each browser tab. Reports use the same webhook and include the selected team code.
+
+T09 starts with the 46 clients and company IDs from the supplied workbook: 9 PC and 37 NO PC. Daily allocation defaults to 120 minutes because allocation values were not supplied. Its creative registry starts empty for manual configuration. Add future teams in `src/data/teams.ts` with a unique code, numeric JAR queue ID, and optional icon; new teams receive an empty database automatically. Back up every SQLite file in the data directory. Run `node scripts/check-teams.cjs` to verify seeds, concurrent team isolation, ticket history, and report labels without contacting JAR or sending reports.
+
+Ticket tabs automatically load today's saved queue. Only **Fetch/Refresh tickets** or the dashboard's **Refresh both queues** contacts the source website. The dashboard refreshes clients and then the selected team sequentially; if one fails, already saved results remain and the error identifies the failed source. Refresh is available for today only. The scraper must still read every page to discover updated assignments/DT/statuses; there is no incremental endpoint available. Saving deduplicates IDs within each source/team/day and records each successful fetch. A failed scrape leaves the previous saved queue intact.
 
 Tickets are retained for the entire day even when absent from later queues. Absence alone never changes status to Customer Review; delivery updates when observed or manually completed. DT locks when In Progress is first observed or delivery is recorded. Later platform unassignment preserves the worked entry?s creative and DT, and queue departure does not turn locked work into a reference. Edit DT, delete, and No BW remain available for manual corrections. A revision keeps the earlier work locked and starts a separate entry. Explicit reassignment updates the current owner; existing saved work-attribution records remain preserved. Daily work is not carried automatically into the next day.
 
 Days use `America/Bogota`. Yesterday's ticket is saved again when fetched today. There is no automatic scraping at midnight and no carryover presented as today's activity. Historical days can be inspected on the dashboard. A fetch is attributed to the day on which it starts.
 
-The dashboard combines today's saved client queue and Team 347 queue. Overlapping observations update one work entry, while eligible Open (Revision) transitions start additional numbered entries without replacing earlier work. Other inspected teams stay isolated from this dashboard. DT is an estimate, not measured work time. Missing/Not Set DT counts as 0:00. Outside-team assignments count toward client totals and remain visible with an **Other team** badge.
+The dashboard combines today's saved client queue and creative queue for the selected team. Overlapping observations update one work entry, while eligible Open (Revision) transitions start additional numbered entries without replacing earlier work. Other team workspaces stay isolated from this dashboard. DT is an estimate, not measured work time. Missing/Not Set DT counts as 0:00. Outside-team assignments count toward client totals and remain visible with an **Other team** badge.
 
 ## Status tracking
 
