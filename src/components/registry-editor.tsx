@@ -31,7 +31,7 @@ export function RegistryEditor({ kind }: { kind: "clients" | "creatives" }) {
     setId(record?.id || ""); setName(record?.name || "");
     setQueueId(record ? "alias" in record ? record.designerId || "" : record.companyId || record.id : "");
     if (record && "alias" in record) { setAlias(record.alias); setScopes(record.scopes); setMinutes(String(record.capacityMinutes)); }
-    else { setAlias(""); setScopes([]); setMinutes(String(record && "dailyMinutes" in record ? record.dailyMinutes : kind === "clients" ? 120 : 405)); }
+    else { setAlias(""); setScopes([]); setMinutes(String(record && "dailyMinutes" in record ? record.dailyMinutes : kind === "clients" ? 120 : 420)); }
     setPc(record && "pc" in record ? record.pc : "NO PC");
   }
   async function lookupClient() {

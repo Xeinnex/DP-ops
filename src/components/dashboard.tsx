@@ -14,7 +14,7 @@ import { PageHeading } from "@/components/page-heading";
 import { CreativeSummary } from "@/components/creative-summary";
 import { QueueLink } from "@/components/queue-link";
 import { clientTicketsUrl, creativeTicketsUrl } from "@/lib/queue-links";
-import { availabilityOptions, effectiveCapacity, capacityPercent } from "@/lib/availability";
+import { availabilityOptions, effectiveCapacity, bandwidthBar } from "@/lib/availability";
 import type { CreativeAvailability } from "@/types/operations";
 import { outsideTeam, outsideStatuses, simplifiedStatus, type OutsideStatus } from "@/lib/outside-tickets";
 import { compareClientAllocation, lastActiveLabel } from "@/lib/client-activity";
@@ -123,20 +123,20 @@ export function Dashboard() {
           const done = completed(tickets);
           const capacity = effectiveCapacity(creative);
           const availability = availabilityOptions.find((option) => option.value === creative.availability) || availabilityOptions[0];
-          const percent = capacityPercent(used, capacity);
-          const donePercent = capacityPercent(done, capacity);
+          const bar = bandwidthBar(used, done, capacity);
           const available = capacity - used;
           const allDone = used > 0 && tickets.reduce((total, ticket) => total + completedMinutes(ticket), 0) >= used;
           const overloaded = used > capacity;
           const awayWithTickets = creative.availability === "away" && tickets.some((ticket) => !ticket.referenceOnly && !ticket.noBandwidth && statusKey(ticket.status) !== "canceled");
           const previous = data.previousProgress?.find((progress) => progress.creativeId === creative.id);
+          const previousBar = previous && bandwidthBar(previous.assignedMinutes, previous.completedMinutes, previous.capacityMinutes);
           const changed = previous && (previous.assignedMinutes !== used || previous.completedMinutes !== done || previous.capacityMinutes !== capacity);
           return <div key={creative.id} className="relative self-start"><details className={`overflow-hidden rounded-xl border ${allDone ? "border-lime/30 bg-lime/5" : awayWithTickets ? "border-red-500/70 bg-red-500/25" : overloaded ? "border-red-400/30 bg-red-400/5" : "border-line bg-panel"}`}>
             <summary className="cursor-pointer list-none px-3 py-3 sm:px-5">
               <CreativeSummary alias={creative.alias} availability={availability.value}>
                 <div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className={`text-sm font-semibold sm:text-base ${availability.value === "away" ? "text-red-500" : availability.value === "half_day" ? "text-yellow-400" : "text-lime"}`}><QueueLink href={creativeTicketsUrl(creative.designerId)}>{creative.alias}</QueueLink>{availability.value !== "available" && <span className={`ml-1 text-[9px] font-medium ${availability.value === "away" ? "text-red-300" : "text-yellow-300"}`}>{availability.value === "half_day" ? "Half day" : "Away"}</span>}</h3><div className="mt-1 flex flex-wrap items-center gap-2"><ScopeBadges scopes={creative.scopes} /><span className="text-[10px] text-muted">{tickets.length} tickets</span></div></div><p className={`shrink-0 text-right text-xs sm:text-sm ${available < 0 ? "text-red-300" : "text-ink"}`}>{signedTime(available)} left</p></div>
-                <div aria-hidden={!changed} className={`relative mt-2 h-1 overflow-hidden rounded-full bg-inset ${changed ? "visible" : "invisible"}`} aria-label={`${creative.alias} previous refresh`} title={previous ? `Previous refresh: ${signedTime(previous.assignedMinutes)} assigned · ${signedTime(previous.completedMinutes)} completed` : undefined}><div className="absolute inset-y-0 left-0 bg-blue/50" style={{ width: `${previous ? Math.min(capacityPercent(previous.assignedMinutes, previous.capacityMinutes), 100) : 0}%` }} /><div className="absolute inset-y-0 left-0 bg-lime/50" style={{ width: `${previous ? Math.min(capacityPercent(previous.completedMinutes, previous.capacityMinutes), 100) : 0}%` }} /></div>
-                <div role="progressbar" aria-label={`${creative.alias} completion`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(donePercent, 100)} aria-valuetext={`${signedTime(done)} completed of ${signedTime(capacity)} capacity; ${signedTime(used)} assigned`} className="relative mt-1 h-3 overflow-hidden rounded-full bg-inset"><div className="absolute inset-y-0 left-0 bg-blue" style={{ width: `${Math.min(percent, 100)}%` }} /><div className="absolute inset-y-0 left-0 bg-lime" style={{ width: `${Math.min(donePercent, 100)}%` }} /></div>
+                <div aria-hidden={!changed} className={`relative mt-2 h-1 overflow-hidden rounded-full bg-inset ${changed ? "visible" : "invisible"}`} aria-label={`${creative.alias} previous refresh`} title={previous ? `Previous refresh: ${signedTime(previous.assignedMinutes)} assigned · ${signedTime(previous.completedMinutes)} completed` : undefined}><div className="absolute inset-y-0 left-0 bg-blue/50" style={{ width: `${previousBar?.assignedPercent ?? 0}%` }} /><div className="absolute inset-y-0 left-0 bg-lime/50" style={{ width: `${previousBar?.completedPercent ?? 0}%` }} /></div>
+                <div role="progressbar" aria-label={`${creative.alias} completion`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={bar.completedPercent} aria-valuetext={`${signedTime(done)} completed of ${signedTime(bar.limit)} bar scale; ${signedTime(capacity)} capacity; ${signedTime(used)} assigned`} className="relative mt-1 h-3 overflow-hidden rounded-full bg-inset"><div className="absolute inset-y-0 left-0 bg-blue" style={{ width: `${bar.assignedPercent}%` }} /><div className="absolute inset-y-0 left-0 bg-lime" style={{ width: `${bar.completedPercent}%` }} /></div>
                 <div className="mt-1.5 flex justify-between gap-2 text-[10px] text-muted sm:text-xs"><span>{signedTime(used)} assigned</span><span>Queue ↓</span></div>
               </CreativeSummary>
             </summary>

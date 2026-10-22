@@ -13,3 +13,12 @@ export function effectiveCapacity(creative: CreativeRecord) {
 export function capacityPercent(minutes: number, capacity: number) {
   return capacity > 0 ? Math.round(minutes / capacity * 100) : minutes > 0 ? 100 : 0;
 }
+
+export function bandwidthBar(assigned: number, completed: number, capacity: number) {
+  const limit = Math.max(capacity, assigned, 0);
+  return {
+    limit,
+    assignedPercent: Math.min(capacityPercent(assigned, limit), 100),
+    completedPercent: Math.min(capacityPercent(completed, limit), 100),
+  };
+}

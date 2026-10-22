@@ -1,5 +1,6 @@
 import { activeTeam, savedTeamScope } from "@/lib/team-context";
 import { t09Clients } from "@/data/t09-clients";
+import { t09Creatives } from "@/data/t09-creatives";
 import "server-only";
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
@@ -16,16 +17,17 @@ import { creativeWork } from "@/lib/creative-work";
 import { outsideTeam, outsideStatuses, type OutsideStatus } from "@/lib/outside-tickets";
 import { historyCutoff } from "@/lib/history-retention";
 
-const databaseCache = globalThis as typeof globalThis & { dpDatabase?: Database.Database; dpDatabaseSchema?: number; dpTeamDatabases?: Map<string, Database.Database> };
-const databaseSchema = 6;
+const databaseCache = globalThis as typeof globalThis & { dpDatabase?: Database.Database; dpDatabaseSchema?: number; dpTeamDatabases?: Map<string, Database.Database>; dpTeamDatabaseSchemas?: Map<string, number> };
+const databaseSchema = 7;
 const teamDatabases = databaseCache.dpTeamDatabases ??= new Map<string, Database.Database>();
+const teamDatabaseSchemas = databaseCache.dpTeamDatabaseSchemas ??= new Map<string, number>();
 
 export function db() {
   const team = activeTeam();
   const base = resolve(/* turbopackIgnore: true */ process.env.DP_DB_PATH || "data/dp-ops.sqlite");
   const filename = team.code === "T04" ? base : base + "." + team.code + ".sqlite";
   const cached = teamDatabases.get(filename);
-  if (cached?.open && databaseCache.dpDatabaseSchema === databaseSchema) { maintainLogs(cached); return cached; }
+  if (cached?.open && teamDatabaseSchemas.get(filename) === databaseSchema && databaseCache.dpDatabaseSchema === databaseSchema) { maintainLogs(cached); return cached; }
   mkdirSync(dirname(filename), { recursive: true });
   // T04 keeps its existing file; no history is copied to new teams.
   const connection = cached?.open ? cached : new Database(filename);
@@ -63,12 +65,35 @@ export function db() {
       for (const client of team.code === "T04" ? seedClients : team.code === "T09" ? t09Clients.map((client) => ({ id: client.companyId, name: client.name })) : []) clientInsert.run({ ...client, dailyMinutes: team.code === "T04" ? (hours[client.id] ?? 2) * 60 : 120, pc: team.code === "T09" ? t09Clients.find((entry) => entry.name === client.name)!.pc : ["104329", "84083", "91457", "78615"].includes(client.id) ? "PC AD" : client.id === "19155" ? "PC" : "NO PC" });
       const scopes: Record<string, string[]> = { Ailen: ["GD", "PD", "FIG"], Diana: ["GD"], Edgar: ["GD", "PD"], Faisal: ["GD"], Haqqy: ["CI", "GD"], Juanes: ["MG"], Andrew: ["VE"], Nacho: ["GD"] };
       const creativeInsert = connection!.prepare("INSERT INTO creatives(id,name,alias,scopes,capacityMinutes,designerId) VALUES (@id,@name,@alias,@scopes,@capacityMinutes,@designerId)");
-      for (const creative of team.code === "T04" ? seedCreatives : []) creativeInsert.run({ ...creative, designerId: creative.designerId ?? null, id: creative.alias.toLowerCase(), scopes: JSON.stringify(scopes[creative.alias]), capacityMinutes: 405 });
+      for (const creative of team.code === "T04" ? seedCreatives : []) creativeInsert.run({ ...creative, designerId: creative.designerId ?? null, id: creative.alias.toLowerCase(), scopes: JSON.stringify(scopes[creative.alias]), capacityMinutes: 420 });
       connection!.prepare("INSERT INTO settings VALUES ('seeded','1')").run();
     })();
   }
   if (addedDesignerId) connection.prepare("UPDATE creatives SET designerId='5371' WHERE alias='Edgar' AND name='Edgar Jean-Pierre Torres Chamorro'").run();
+  connection.transaction(() => {
+    // Apply the workbook to existing deployments too, preserving manually created
+    // record IDs and availability so their history and daily settings still match.
+    if (team.code === "T09" && !connection.prepare("SELECT value FROM settings WHERE key='t09_creatives_workbook_v1'").get()) {
+      for (const creative of t09Creatives) {
+        const rows = connection.prepare("SELECT id,name,alias,designerId FROM creatives").all() as CreativeRecord[];
+        const existing = rows.find((row) => row.designerId === creative.designerId)
+          ?? rows.find((row) => normalizeName(row.name) === normalizeName(creative.name))
+          ?? rows.find((row) => normalizeName(row.alias) === normalizeName(creative.alias));
+        if (existing) {
+          connection.prepare("UPDATE creatives SET name=?,alias=?,scopes=?,capacityMinutes=?,designerId=? WHERE id=?").run(creative.name, creative.alias, JSON.stringify(creative.scopes), 420, creative.designerId, existing.id);
+        } else {
+          connection.prepare("INSERT INTO creatives(id,name,alias,scopes,capacityMinutes,designerId) VALUES (?,?,?,?,?,?)").run(creative.id, creative.name, creative.alias, JSON.stringify(creative.scopes), 420, creative.designerId);
+        }
+      }
+      connection.prepare("INSERT INTO settings VALUES ('t09_creatives_workbook_v1','1')").run();
+    }
+    if (!connection.prepare("SELECT value FROM settings WHERE key='seven_hour_capacity_v1'").get()) {
+      connection.prepare("UPDATE creatives SET capacityMinutes=420").run();
+      connection.prepare("INSERT INTO settings VALUES ('seven_hour_capacity_v1','1')").run();
+    }
+  })();
   teamDatabases.set(filename, connection);
+  teamDatabaseSchemas.set(filename, databaseSchema);
   databaseCache.dpDatabase = connection;
   databaseCache.dpDatabaseSchema = databaseSchema;
   maintainLogs(connection);

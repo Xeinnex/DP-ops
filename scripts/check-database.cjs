@@ -5,7 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const ts = require("typescript");
 function load(file, dependencies = {}, sharedGlobals = {}) {
-  dependencies = { "@/lib/team-context": { withTeam: handler => handler, activeTeam: () => ({ code: "T04" }), savedTeamScope: () => "347" }, "@/data/t09-clients": { t09Clients: [] }, ...dependencies };
+  dependencies = { "@/lib/team-context": { withTeam: handler => handler, activeTeam: () => ({ code: "T04" }), savedTeamScope: () => "347" }, "@/data/t09-clients": { t09Clients: [] }, "@/data/t09-creatives": { t09Creatives: [] }, ...dependencies };
   dependencies = { "@/lib/request-origin": file.endsWith("request-origin.ts") ? {} : load("src/lib/request-origin.ts"), ...dependencies };
   const exports = {};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, { exports, require: (id) => id in dependencies ? dependencies[id] : require(id), process, Map, Set, Intl, Date, Request, Response, URL, globalThis: sharedGlobals });
@@ -36,7 +36,7 @@ try {
   const upgraded = load("src/lib/database.ts", dependencies, databaseGlobals);
   assert.equal(upgraded.db(), database.db(), "Schema upgrades must reuse the open connection.");
   assert.equal(upgraded.db().prepare("SELECT COUNT(*) AS count FROM outside_statuses").get().count, 0);
-  assert.equal(availability.effectiveCapacity(database.registry().creatives[0]), 405);
+  assert.equal(availability.effectiveCapacity(database.registry().creatives[0]), 420);
   assert.equal(availability.effectiveCapacity({ capacityMinutes: 405, availability: "half_day" }), 225);
   assert.equal(availability.effectiveCapacity({ capacityMinutes: 405, availability: "away" }), 0);
   assert.equal(availability.capacityPercent(120, 0), 100);
@@ -203,7 +203,7 @@ try {
   assert.equal((await setAvailability({ creativeId: "ailen", availability: "bad" })).status, 400);
   const availableResponse = await setAvailability({ creativeId: "ailen", availability: "available" });
   assert.equal(availableResponse.status, 200);
-  assert.equal(availability.effectiveCapacity((await availableResponse.json()).creatives.find((creative) => creative.id === "ailen")), 405);
+  assert.equal(availability.effectiveCapacity((await availableResponse.json()).creatives.find((creative) => creative.id === "ailen")), 420);
   assert.equal((await setAvailability({ creativeId: "ailen", availability: "half_day" })).status, 200);
   assert.equal((await setAvailability({ creativeId: "ailen", availability: "away" })).status, 200);
   const outsideDay = "2026-11-15";
